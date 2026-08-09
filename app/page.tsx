@@ -20,7 +20,7 @@ export default function Home() {
 
   const [stats, setStats] = useState({
     totalEmployees: 0,
-    totalAssignedEmployees: 0, // المتغير الجديد
+    totalAssignedEmployees: 0, 
     matchedRecords: 0,
     exceptionRecords: 0,
     totalApprovedHours: 0,
@@ -107,7 +107,7 @@ export default function Home() {
       ]);
 
       let totalAssignedHours = 0;
-      let totalAssignedEmps = 0; // حساب عدد العمال المكلفين
+      let totalAssignedEmps = 0; 
       const empAssignedMap: Record<string, any> = {};
 
       if (detailedAssignments) {
@@ -115,7 +115,7 @@ export default function Home() {
           (assign as any).ot_assignment_employees?.forEach((emp: any) => {
             if (activeDeptId && emp.employees?.department_id !== activeDeptId) return;
 
-            totalAssignedEmps++; // زيادة العداد لكل عامل مكلف
+            totalAssignedEmps++; 
 
             const shift = emp.employees?.shifts?.name || '';
             const isNight = shift.includes('ليل') || shift.includes('مسا');
@@ -181,7 +181,7 @@ export default function Home() {
 
       setStats({ 
         totalEmployees: empCount || 0, 
-        totalAssignedEmployees: totalAssignedEmps, // تمرير الرقم الجديد
+        totalAssignedEmployees: totalAssignedEmps, 
         matchedRecords: matched, 
         exceptionRecords: exceptions,
         totalApprovedHours: parseFloat(approvedHours.toFixed(2)),
@@ -214,6 +214,10 @@ export default function Home() {
   let displayDeptName = 'جميع إدارات المصنع';
   if (userRole === 'MANAGER') displayDeptName = userDeptName;
   else if (selectedDeptFilter) displayDeptName = departments.find(d => d.id === selectedDeptFilter)?.name || '';
+
+  // التحية الذكية بناءً على الوقت
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 12 ? 'صباح الخير ☀️' : currentHour < 18 ? 'طاب مساؤك 🌤️' : 'مساء الخير 🌙';
 
   return (
     <div className="flex flex-col space-y-8 pb-10 relative">
@@ -264,7 +268,8 @@ export default function Home() {
 
       <div className="bg-gradient-to-l from-[var(--color-navy-900)] to-[var(--color-navy-500)] p-8 rounded-2xl shadow-lg text-white relative overflow-hidden mt-2">
         <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">أهلاً بك يا {userName.split(' ')[0]} في OT Audit</h1>
+          {/* تطبيق التحية الذكية هنا */}
+          <h1 className="text-3xl font-bold mb-2">{greeting} يا {userName.split(' ')[0]}</h1>
           <p className="text-blue-100 text-lg max-w-2xl">
             لوحة تحكم تفاعلية توفر لك رؤية عميقة لساعات العمل الإضافي الخاصة بـ <strong className="text-white bg-blue-800/50 px-2 py-0.5 rounded">{displayDeptName}</strong>.
           </p>
@@ -332,7 +337,6 @@ export default function Home() {
           </div>
         </div>
         
-        {/* التعديل هنا: العمال المكلفين بدلاً من التكليفات */}
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-purple-500 transform transition hover:-translate-y-1 hover:shadow-md">
           <div className="flex justify-between items-start">
             <div><p className="text-gray-500 text-sm font-bold mb-1">إجمالي العمال المكلفين</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalAssignedEmployees}</h3></div>

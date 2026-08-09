@@ -9,6 +9,7 @@ const cairo = Cairo({ subsets: ['arabic'] })
 export const metadata: Metadata = {
   title: 'OT Audit System',
   description: 'نظام التدقيق والمطابقة الذكي لساعات العمل الإضافية',
+  manifest: '/manifest.json', // السطر ده اللي بيحول الموقع لتطبيق موبايل
 }
 
 export default function RootLayout({
