@@ -8,6 +8,11 @@ import { useRouter } from 'next/navigation';
 
 export default function AttendancePage() {
   const router = useRouter();
+
+  // --- حالات الصلاحيات ---
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userDeptId, setUserDeptId] = useState<string | null>(null);
+
   const [imports, setImports] = useState<any[]>([]);
   const [dbEmployees, setDbEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,13 +41,32 @@ export default function AttendancePage() {
       return;
     }
 
+    setUserRole(user.role);
     document.title = 'سجل الحضور | OT Audit';
-    fetchImportsHistory();
-    fetchAllEmployees();
+
+    // جلب بيانات القسم وتمريرها للدوال
+    async function initUser() {
+      const { data } = await supabase.from('users').select('department_id').eq('id', user.id).single();
+      if (data?.department_id) {
+        setUserDeptId(data.department_id);
+      }
+      fetchImportsHistory();
+      fetchAllEmployees(user.role, data?.department_id);
+    }
+
+    initUser();
   }, [router]);
 
-  async function fetchAllEmployees() {
-    const { data } = await supabase.from('employees').select('emp_number, name');
+  // --- العزل: جلب الموظفين بناءً على الصلاحية ---
+  async function fetchAllEmployees(role: string, deptId: string | null) {
+    let query = supabase.from('employees').select('emp_number, name');
+    
+    // لو مدير قسم، يجيب موظفين قسمه بس، عشان لو رفع شيت فيه حد غريب يترفض
+    if (role === 'MANAGER' && deptId) {
+      query = query.eq('department_id', deptId);
+    }
+    
+    const { data } = await query;
     if (data) setDbEmployees(data);
   }
 
@@ -85,7 +109,7 @@ export default function AttendancePage() {
         }
 
         const matchedEmp = dbEmployees.find(e => String(e.emp_number) === empNumber);
-        const empName = matchedEmp ? matchedEmp.name : 'غير مسجل في النظام';
+        const empName = matchedEmp ? matchedEmp.name : 'غير مسجل أو ليس بإدارتك'; // رسالة توضح العزل
 
         if (!empNumber || headerRowIndex === -1) {
           parsedFiles.push({ fileName: file.name, empNumber: '-', empName: 'هيكل غير معروف', records: [], status: 'error' });
@@ -149,7 +173,7 @@ export default function AttendancePage() {
   };
 
   return (
-    <div className="flex flex-col space-y-6 relative">
+    <div className="flex flex-col space-y-6 relative pb-10">
       {toast.show && (
         <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 flex items-center gap-3 px-6 py-3 rounded-lg shadow-xl z-50 transition-all duration-300 ${toast.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
           {toast.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
@@ -160,12 +184,20 @@ export default function AttendancePage() {
       <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border-t-4 border-[var(--color-navy-500)]">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-navy-900)]">سجل الحضور والانصراف</h1>
-          <p className="text-gray-500 text-sm mt-1">رفع ملفات البصمة بشكل مجمع وعرض المعاينة بالأسماء</p>
+          <p className="text-gray-500 text-sm mt-1">
+            رفع ملفات البصمة بشكل مجمع وعرض المعاينة {userRole === 'MANAGER' ? '(لإدارتك فقط)' : ''}
+          </p>
         </div>
-        <input type="file" accept=".xlsx" multiple className="hidden" ref={fileInputRef} onChange={handleMultipleFilesUpload} />
-        <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 bg-[var(--color-navy-500)] text-white px-6 py-2 rounded-lg hover:bg-[var(--color-navy-800)] transition">
-          <Layers size={18} /><span>{isUploading && !showPreview ? 'جاري القراءة...' : 'رفع ملفات بصمة'}</span>
-        </button>
+        
+        {/* زرار الرفع متاح للأدمن والمدير فقط (مدير المصنع يتفرج بس) */}
+        {(userRole === 'ADMIN' || userRole === 'MANAGER') && (
+          <>
+            <input type="file" accept=".xlsx" multiple className="hidden" ref={fileInputRef} onChange={handleMultipleFilesUpload} />
+            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 bg-[var(--color-navy-500)] text-white px-6 py-2 rounded-lg hover:bg-[var(--color-navy-800)] transition font-bold shadow-md">
+              <Layers size={18} /><span>{isUploading && !showPreview ? 'جاري القراءة...' : 'رفع ملفات بصمة'}</span>
+            </button>
+          </>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border">
@@ -180,13 +212,13 @@ export default function AttendancePage() {
               </tr>
             </thead>
             <tbody>
-              {loading ? <tr><td colSpan={4} className="p-8 text-center text-gray-500">جاري التحميل...</td></tr> : 
+              {loading ? <tr><td colSpan={4} className="p-8 text-center text-gray-500 font-bold">جاري التحميل...</td></tr> : 
                imports.map((imp) => (
-                  <tr key={imp.id} className="border-b hover:bg-gray-50">
-                    <td className="p-4 text-gray-700 text-sm">{new Date(imp.created_at).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td className="p-4 font-medium text-[var(--color-navy-500)] flex items-center gap-2"><FileText size={16} /> {imp.file_name}</td>
-                    <td className="p-4 text-gray-700 font-bold text-center">{imp.total_records}</td>
-                    <td className="p-4"><span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold">مكتمل</span></td>
+                  <tr key={imp.id} className="border-b hover:bg-gray-50 transition">
+                    <td className="p-4 text-gray-700 text-sm font-bold">{new Date(imp.created_at).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td className="p-4 font-bold text-[var(--color-navy-500)] flex items-center gap-2"><FileText size={16} /> {imp.file_name}</td>
+                    <td className="p-4 text-gray-700 font-black text-center text-lg">{imp.total_records}</td>
+                    <td className="p-4"><span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-bold">مكتمل</span></td>
                   </tr>
                 ))}
             </tbody>
@@ -207,7 +239,7 @@ export default function AttendancePage() {
                   <div key={idx} className={`bg-white p-5 rounded-lg border-l-4 shadow-sm flex items-center justify-between ${file.status === 'valid' ? 'border-green-500' : 'border-red-500'}`}>
                     <div>
                       <h3 className="font-bold text-[var(--color-navy-900)] flex items-center gap-2 mb-2"><FileText size={18} className="text-gray-400"/> {file.fileName}</h3>
-                      <div className="text-sm text-gray-700 flex gap-6 items-center">
+                      <div className="text-sm text-gray-700 flex gap-6 items-center font-semibold">
                         <div className="flex items-center gap-2"><User size={16} className="text-blue-500"/> الاسم: <strong className={file.status === 'valid' ? 'text-blue-700' : 'text-red-600'}>{file.empName}</strong></div>
                         <div>الرقم: <strong>{file.empNumber}</strong></div>
                         {file.status === 'valid' && (<div>البصمات: <strong className="text-green-600">{file.records.length} يوم</strong></div>)}
@@ -216,7 +248,7 @@ export default function AttendancePage() {
                     <div>
                        {file.status === 'valid' ? 
                           <span className="bg-green-100 text-green-700 px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><CheckCircle2 size={14}/> جاهز</span> :
-                          <span className="bg-red-100 text-red-700 px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><AlertCircle size={14}/> غير صالح</span>
+                          <span className="bg-red-100 text-red-700 px-3 py-1 rounded text-xs font-bold flex items-center gap-1 shadow-sm"><AlertCircle size={14}/> غير صالح</span>
                        }
                     </div>
                   </div>
@@ -226,8 +258,8 @@ export default function AttendancePage() {
             <div className="p-6 border-t bg-white rounded-b-xl flex justify-between items-center">
               <span className="text-sm font-semibold text-gray-600">الملفات الصحيحة: <span className="text-green-600">{previewList.filter(f => f.status === 'valid').length}</span> من {previewList.length}</span>
               <div className="flex gap-2">
-                <button onClick={() => setShowPreview(false)} className="px-6 py-2 text-gray-600 hover:bg-gray-200 rounded-lg font-medium">إلغاء</button>
-                <button onClick={saveMultipleAttendance} disabled={isUploading || previewList.filter(f => f.status === 'valid').length === 0} className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg font-medium disabled:opacity-50">
+                <button onClick={() => setShowPreview(false)} className="px-6 py-2 text-gray-600 hover:bg-gray-200 rounded-lg font-bold">إلغاء</button>
+                <button onClick={saveMultipleAttendance} disabled={isUploading || previewList.filter(f => f.status === 'valid').length === 0} className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg font-bold shadow-md disabled:opacity-50">
                   <Save size={18} /><span>تأكيد وحفظ الصحيح</span>
                 </button>
               </div>
