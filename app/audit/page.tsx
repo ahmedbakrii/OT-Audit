@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CheckCircle2, AlertCircle, Play, Filter, FileWarning, CheckCircle, Clock, Search, XCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Filter, FileWarning, CheckCircle, Clock, Search, XCircle, CheckSquare, Loader2 } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 function AuditContent() {
@@ -13,15 +13,17 @@ function AuditContent() {
   const [userDeptId, setUserDeptId] = useState<string | null>(null);
 
   const [calculations, setCalculations] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [isAuditing, setIsAuditing] = useState(false);
+  const [selectedConflicts, setSelectedConflicts] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true); // خليناها True في البداية عشان الـ Auto-run
+  
+  // Ref لمنع تشغيل دالة الفحص الأوتوماتيكي أكتر من مرة في نفس الوقت
+  const hasRunRef = useRef(false);
 
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   
   const [filterStatus, setFilterStatus] = useState<string>(searchParams.get('status') || 'ALL');
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
-  const [filterExceptionType, setFilterExceptionType] = useState(searchParams.get('type') || '');
   const [filterCompany, setFilterCompany] = useState('');
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
@@ -31,7 +33,7 @@ function AuditContent() {
   };
 
   useEffect(() => {
-    document.title = 'التدقيق والمطابقة | OT Audit';
+    document.title = 'إدارة التعارضات | OT Audit';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     
@@ -44,22 +46,21 @@ function AuditContent() {
       const { data } = await supabase.from('users').select('department_id').eq('id', user.id).single();
       if (data?.department_id) setUserDeptId(data.department_id);
       
-      fetchCalculations(user.role, data?.department_id);
+      // بمجرد تحميل بيانات المستخدم، بنشغل محرك الفحص أوتوماتيك
+      hasRunRef.current = false; // تصغير الريف عشان يشتغل تاني مع تغيير الشهر/السنة
+      autoRunAuditEngine(user.role, data?.department_id);
     }
     initUser();
   }, [selectedMonth, selectedYear, router]);
 
   async function fetchCalculations(role: string | null, deptId: string | null) {
     try {
-      setLoading(true);
-      
       let query = supabase.from('ot_calculations')
-        .select(`*, employees!inner(name, job_title, department_id, companies(name))`)
+        .select(`*, employees!inner(name, job_title, department_id, companies(name), shifts(name))`)
         .eq('month', selectedMonth)
         .eq('year', selectedYear)
         .order('date', { ascending: false });
 
-      // العزل يطبق على مدير القسم فقط، بينما الأدمن ومدير المصنع يتخطون هذا الشرط ليروا الجميع
       if (role === 'MANAGER' && deptId) {
         query = query.eq('employees.department_id', deptId);
       }
@@ -67,83 +68,184 @@ function AuditContent() {
       const { data, error } = await query;
       if (error) throw error;
       setCalculations(data || []);
+      setSelectedConflicts([]);
     } catch (error: any) {
       console.error(error);
+      showToast('حدث خطأ أثناء تحميل البيانات.', 'error');
     } finally {
       setLoading(false);
     }
   }
 
-  // محرك المطابقة يعمل بكامل قوته بواسطة الـ ADMIN فقط
-  const runAuditEngine = async () => {
-    if (userRole !== 'ADMIN') return showToast('غير مصرح لك بتشغيل محرك المطابقة. هذه صلاحية مدير النظام فقط.', 'error');
-    if (!confirm(`هل أنت متأكد من بدء المطابقة لشهر ${selectedMonth}/${selectedYear} لجميع موظفي المصنع؟`)) return;
-    
-    setIsAuditing(true);
+  // --- محرك اكتشاف التعارضات الذكي (يعمل تلقائياً) ---
+  const autoRunAuditEngine = async (role: string | null, deptId: string | null) => {
+    // نمنع التشغيل لمدخل البيانات، ونمنع التكرار لو شغال بالفعل
+    if (role !== 'ADMIN' && role !== 'MANAGER') {
+        setLoading(false);
+        return;
+    }
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
+    setLoading(true);
+
     try {
-      await supabase.from('ot_calculations').delete().eq('month', selectedMonth).eq('year', selectedYear);
+      // 1. مسح السجلات القديمة اللي لسه معلقتهاش (اللي حالتها مش RESOLVED)
+      // عشان لو مدخل البيانات رفع بصمة جديدة، النظام يعيد الحساب بدون ما يمسح قرارات المدير القديمة
+      let deleteQuery = supabase.from('ot_calculations')
+          .delete()
+          .eq('month', selectedMonth)
+          .eq('year', selectedYear)
+          .neq('status', 'RESOLVED'); // حماية لقرارات المدير السابقة
+
+      if (role === 'MANAGER' && deptId) {
+        const { data: deptEmps } = await supabase.from('employees').select('emp_number').eq('department_id', deptId);
+        const empNumbers = deptEmps?.map(e => e.emp_number) || [];
+        if(empNumbers.length > 0) deleteQuery = deleteQuery.in('emp_number', empNumbers);
+      }
+      await deleteQuery;
+
       const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
       const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-31`;
 
-      const { data: timesheets } = await supabase.from('timesheet_records').select('*').gte('date', startDate).lte('date', endDate);
-      if (!timesheets || timesheets.length === 0) {
-        showToast('لا يوجد تايم شيت مرفوع لهذا الشهر!', 'error'); setIsAuditing(false); return;
-      }
+      // 2. سحب البيانات (التكليفات والبصمات)
+      let assignQuery = supabase.from('ot_assignments').select(`date, day_end_time, night_end_time, department_id, ot_assignment_employees(emp_number, employees!inner(shifts(name), department_id))`).gte('date', startDate).lte('date', endDate);
+      if (role === 'MANAGER' && deptId) assignQuery = assignQuery.eq('department_id', deptId);
+      const { data: rawAssignments } = await assignQuery;
 
-      const { data: attendances } = await supabase.from('attendance_records').select('*').gte('date', startDate).lte('date', endDate);
-      const { data: rawAssignments } = await supabase.from('ot_assignments').select(`date, day_end_time, night_end_time, ot_assignment_employees(emp_number, employees(shifts(name)))`).gte('date', startDate).lte('date', endDate);
+      let attendQuery = supabase.from('attendance_records').select(`emp_number, date, first_in, last_out, employees!inner(department_id)`).gte('date', startDate).lte('date', endDate);
+      if (role === 'MANAGER' && deptId) attendQuery = attendQuery.eq('employees.department_id', deptId);
+      const { data: attendances } = await attendQuery;
+
+      // 3. نجيب القرارات اللي تم حسمها مسبقاً عشان مش نعيد حسابها
+      let resolvedQuery = supabase.from('ot_calculations').select('emp_number, date').eq('month', selectedMonth).eq('year', selectedYear).eq('status', 'RESOLVED');
+      if (role === 'MANAGER' && deptId) resolvedQuery = resolvedQuery.eq('employees.department_id', deptId); // ده هيضرب إيرور عشان مفيش Join مباشر، الأحسن نسحب الـ emp_number والـ date بس ونفلتر محلياً
+      const { data: resolvedData } = await resolvedQuery;
       
-      const flatAssignments: any[] = [];
+      // نفلتر الداتا عشان تبقى أسرع في البحث
+      const resolvedSet = new Set(resolvedData?.map(r => `${r.emp_number}_${r.date}`) || []);
+
+      const getMins = (timeStr: string) => {
+        if (!timeStr) return 0;
+        const [h, m] = timeStr.split(':').map(Number);
+        return h * 60 + m;
+      };
+
+      const auditResults: any[] = [];
+
+      // 4. المقارنة والحساب
       rawAssignments?.forEach(assign => { 
         assign.ot_assignment_employees.forEach((emp: any) => { 
+          // نتخطى السجلات اللي المدير حلها خلاص
+          if (resolvedSet.has(`${emp.emp_number}_${assign.date}`)) return;
+
           const shift = emp.employees?.shifts?.name || '';
-          const isDay = !shift.includes('ليل') && !shift.includes('مسا');
-          flatAssignments.push({ 
-            emp_number: emp.emp_number, 
-            date: assign.date, 
-            end_time: isDay ? assign.day_end_time : assign.night_end_time 
-          }); 
+          const isNight = shift.includes('ليل') || shift.includes('مسا');
+          const basicEndStr = isNight ? '04:00' : '16:00';
+          const assignEndStr = (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5);
+
+          const assignDiffMins = getMins(assignEndStr) - getMins(basicEndStr);
+          const assignedHours = Math.round(((assignDiffMins < 0 ? assignDiffMins + (24*60) : assignDiffMins) / 60) * 10) / 10;
+
+          const attendance = attendances?.find(a => a.emp_number === emp.emp_number && a.date === assign.date);
+          
+          let status = 'MATCHED';
+          let exceptionType = 'سليم (مطابق)';
+          let finalHours = assignedHours;
+          let attendedHours = 0;
+
+          if (!attendance || !attendance.last_out) {
+            status = 'CONFLICT'; exceptionType = 'لم يسجل بصمة انصراف'; finalHours = 0;
+          } else {
+            const actualOutStr = new Date(attendance.last_out).toISOString().substring(11, 16);
+            const actualDiffMins = getMins(actualOutStr) - getMins(basicEndStr);
+            attendedHours = Math.round(((actualDiffMins < 0 ? actualDiffMins + (24*60) : actualDiffMins) / 60) * 10) / 10;
+
+            const diffMins = (assignedHours - attendedHours) * 60;
+
+            if (attendedHours < assignedHours) {
+              if (diffMins <= 20) {
+                status = 'MATCHED'; exceptionType = 'سليم (ضمن السماحية)'; finalHours = assignedHours;
+              } else {
+                status = 'CONFLICT'; exceptionType = 'انصراف مبكر عن التكليف'; finalHours = 0;
+              }
+            } else if (attendedHours > assignedHours) {
+              status = 'CONFLICT'; exceptionType = 'ساعات إضافية تتجاوز التكليف'; finalHours = 0;
+            }
+          }
+
+          auditResults.push({
+            emp_number: emp.emp_number, date: assign.date, month: selectedMonth, year: selectedYear,
+            timesheet_hours: assignedHours,
+            attendance_in: attendance?.first_in || null, attendance_out: attendance?.last_out || null,
+            assigned_end_time: assignEndStr, final_approved_hours: finalHours, exception_type: exceptionType, status: status
+          });
         }); 
       });
 
-      const auditResults = timesheets.map(ts => {
-        const attendance = attendances?.find(a => a.emp_number === ts.emp_number && a.date === ts.date);
-        const assignment = flatAssignments.find(a => a.emp_number === ts.emp_number && a.date === ts.date);
+      if(auditResults.length > 0) {
+        const { error: insertError } = await supabase.from('ot_calculations').insert(auditResults);
+        if (insertError) throw insertError;
+      }
+      
+      // 5. في النهاية نسحب الداتا المحدثة عشان نعرضها للمدير
+      await fetchCalculations(role, deptId);
 
-        let exceptionType = 'مطابق'; let status = 'MATCHED'; let finalHours = ts.recorded_hours;
-        if (!attendance || !attendance.last_out) { exceptionType = 'بدون بصمة انصراف'; status = 'EXCEPTION'; finalHours = 0; }
-        else if (!assignment) { exceptionType = 'بدون تكليف مسبق'; status = 'EXCEPTION'; finalHours = 0; }
-        else { exceptionType = 'مطابق'; status = 'MATCHED'; finalHours = ts.recorded_hours; }
+    } catch (error) { 
+        console.error(error); 
+        showToast('حدث خطأ أثناء فحص البيانات آلياً.', 'error'); 
+        setLoading(false);
+    }
+  };
 
-        return {
-          emp_number: ts.emp_number, date: ts.date, month: selectedMonth, year: selectedYear,
-          timesheet_hours: ts.recorded_hours, attendance_in: attendance?.first_in || null, attendance_out: attendance?.last_out || null,
-          assigned_end_time: assignment?.end_time || null, final_approved_hours: finalHours, exception_type: exceptionType, status: status
-        };
-      });
+  // --- دوال حل التعارضات (Resolution) ---
+  const handleSelectConflict = (id: string) => {
+    if (selectedConflicts.includes(id)) setSelectedConflicts(selectedConflicts.filter(c => c !== id));
+    else setSelectedConflicts([...selectedConflicts, id]);
+  };
 
-      const { error: insertError } = await supabase.from('ot_calculations').insert(auditResults);
-      if (insertError) throw insertError;
-      showToast('تمت عملية المطابقة بنجاح لجميع موظفي المصنع!', 'success'); 
+  const resolveConflicts = async (ids: string[], choice: 'ATTENDANCE' | 'ASSIGNMENT') => {
+    try {
+      const recordsToUpdate = calculations.filter(c => ids.includes(c.id));
+      
+      for (const record of recordsToUpdate) {
+        let approvedHours = 0;
+        if (choice === 'ASSIGNMENT') {
+          approvedHours = record.timesheet_hours;
+        } else {
+          const shift = record.employees?.shifts?.name || '';
+          const isNight = shift.includes('ليل') || shift.includes('مسا');
+          const basicEndStr = isNight ? '04:00' : '16:00';
+          if (record.attendance_out) {
+             const actualOutStr = new Date(record.attendance_out).toISOString().substring(11, 16);
+             const getMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+             let actualDiffMins = getMins(actualOutStr) - getMins(basicEndStr);
+             approvedHours = Math.round(((actualDiffMins < 0 ? actualDiffMins + (24*60) : actualDiffMins) / 60) * 10) / 10;
+          }
+        }
+
+        await supabase.from('ot_calculations').update({
+          status: 'RESOLVED',
+          final_approved_hours: approvedHours,
+          exception_type: `تم الحل - اعتُمد ${choice === 'ASSIGNMENT' ? 'التكليف' : 'البصمة'}`
+        }).eq('id', record.id);
+      }
+
+      showToast('تم حل التعارض واعتماد الساعات بنجاح.', 'success');
+      // بعد ما يحل، نسحب الداتا تاني عشان الشاشة تتحدث
       fetchCalculations(userRole, userDeptId);
-    } catch (error) { showToast('حدث خطأ أثناء العملية.', 'error'); } 
-    finally { setIsAuditing(false); }
+    } catch (error) {
+      showToast('حدث خطأ أثناء الاعتماد.', 'error');
+    }
   };
 
   const uniqueCompanies = Array.from(new Set(calculations.map(c => c.employees?.companies?.name))).filter(Boolean);
-  const uniqueExceptions = Array.from(new Set(calculations.map(c => c.exception_type))).filter(Boolean);
 
   const displayedCalculations = calculations.filter(c => {
-    const matchStatus = filterStatus === 'ALL' || c.status === filterStatus;
+    const matchStatus = filterStatus === 'ALL' || c.status === filterStatus || (filterStatus === 'CONFLICT' && c.status === 'RESOLVED'); // إظهار المحلول مع التعارضات
     const matchSearch = (c.employees?.name || '').includes(searchQuery) || (c.emp_number || '').includes(searchQuery);
     const matchCompany = filterCompany === '' || c.employees?.companies?.name === filterCompany;
-    const matchException = filterExceptionType === '' || c.exception_type === filterExceptionType;
-    return matchStatus && matchSearch && matchCompany && matchException;
+    return matchStatus && matchSearch && matchCompany;
   });
-
-  const totalRecords = displayedCalculations.length;
-  const matchedRecords = displayedCalculations.filter(c => c.status === 'MATCHED').length;
-  const exceptionRecords = displayedCalculations.filter(c => c.status === 'EXCEPTION').length;
 
   return (
     <div className="flex flex-col space-y-6 relative pb-10">
@@ -156,8 +258,8 @@ function AuditContent() {
 
       <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-[var(--color-navy-500)] flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-navy-900)]">التدقيق والمطابقة (Audit Engine)</h1>
-          <p className="text-gray-500 text-sm mt-1">مطابقة التايم شيت مع البصمة والتكليفات {userRole === 'MANAGER' ? '(لإدارتك فقط)' : ''}</p>
+          <h1 className="text-2xl font-bold text-[var(--color-navy-900)]">لوحة إدارة التعارضات والمطابقة</h1>
+          <p className="text-gray-500 text-sm mt-1">يتم جلب التعارضات بين البصمة والتكليفات بشكل <span className="font-bold text-green-600">تلقائي وفوري</span>.</p>
         </div>
         <div className="flex items-center gap-4 bg-gray-50 p-2 rounded-lg border shadow-inner">
           <div className="flex items-center gap-2">
@@ -172,84 +274,101 @@ function AuditContent() {
               {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
-          {/* محرك المطابقة لا يظهر إلا للأدمن */}
-          {userRole === 'ADMIN' && (
-            <button onClick={runAuditEngine} disabled={isAuditing} className="flex items-center gap-2 bg-[var(--color-navy-500)] text-white px-6 py-2 rounded-lg hover:bg-[var(--color-navy-800)] transition font-bold shadow-md disabled:opacity-50">
-              <Play size={18} className={isAuditing ? 'animate-pulse' : ''} /> {isAuditing ? 'جاري المطابقة...' : 'ابدأ المطابقة الذكية'}
-            </button>
+          
+          {loading && (
+             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-md font-bold text-sm">
+                <Loader2 size={16} className="animate-spin" /> جاري التحديث...
+             </div>
           )}
         </div>
       </div>
 
-      {calculations.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-5 rounded-xl shadow-sm border-r-4 border-blue-500 flex items-center justify-between">
-            <div><p className="text-gray-500 text-sm font-semibold">إجمالي السجلات المفحوصة</p><h3 className="text-2xl font-bold text-gray-800 mt-1">{totalRecords}</h3></div>
-            <div className="bg-blue-50 p-3 rounded-full text-blue-500"><Clock size={24} /></div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border-r-4 border-green-500 flex items-center justify-between">
-            <div><p className="text-gray-500 text-sm font-semibold">المطابق (سليم)</p><h3 className="text-2xl font-bold text-green-600 mt-1">{matchedRecords}</h3></div>
-            <div className="bg-green-50 p-3 rounded-full text-green-500"><CheckCircle size={24} /></div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border-r-4 border-red-500 flex items-center justify-between">
-            <div><p className="text-gray-500 text-sm font-semibold">الاستثناءات (مرفوض)</p><h3 className="text-2xl font-bold text-red-600 mt-1">{exceptionRecords}</h3></div>
-            <div className="bg-red-50 p-3 rounded-full text-red-500"><FileWarning size={24} /></div>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white p-4 rounded-xl shadow-sm flex flex-wrap items-center gap-4">
+      <div className="bg-white p-4 rounded-xl shadow-sm flex flex-wrap items-center gap-4 border">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={16} className="absolute right-3 top-2.5 text-gray-400" />
           <input type="text" placeholder="بحث باسم الموظف أو الرقم..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full border border-gray-300 rounded-lg pl-3 pr-9 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-700" />
         </div>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="border border-gray-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-700">
-          <option value="ALL">كل الحالات</option>
-          <option value="MATCHED">المطابق فقط (سليم)</option>
-          <option value="EXCEPTION">الاستثناءات فقط</option>
+          <option value="ALL">عرض الكل</option>
+          <option value="MATCHED">السليم والمطابق فقط</option>
+          <option value="CONFLICT">التعارضات (تتطلب تدخل)</option>
         </select>
         <select value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} className="border border-gray-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-700">
           <option value="">كل الشركات</option>
           {uniqueCompanies.map((c: any) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={filterExceptionType} onChange={(e) => setFilterExceptionType(e.target.value)} className="border border-gray-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-700">
-          <option value="">كل أنواع الاستثناءات</option>
-          {uniqueExceptions.map((ex: any) => <option key={ex} value={ex}>{ex}</option>)}
-        </select>
-        
-        {(searchQuery || filterCompany || filterExceptionType || filterStatus !== 'ALL') && (
-          <button onClick={() => { setSearchQuery(''); setFilterCompany(''); setFilterExceptionType(''); setFilterStatus('ALL'); }} className="flex items-center gap-1 text-red-600 hover:text-red-800 text-sm font-bold transition bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
-            <XCircle size={16} /> تفريغ الفلاتر
-          </button>
-        )}
       </div>
+
+      {selectedConflicts.length > 0 && userRole !== 'FACTORY_MANAGER' && (
+        <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-2 font-bold text-orange-800">
+            <CheckSquare size={20} /> تم تحديد ({selectedConflicts.length}) تعارضات
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => resolveConflicts(selectedConflicts, 'ASSIGNMENT')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold transition shadow-sm text-sm">اعتماد التكليف للمحدد</button>
+            <button onClick={() => resolveConflicts(selectedConflicts, 'ATTENDANCE')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold transition shadow-sm text-sm">اعتماد البصمة للمحدد</button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border">
         <div className="overflow-x-auto">
-          <table className="w-full text-right border-collapse min-w-[900px]">
+          <table className="w-full text-right border-collapse min-w-[1000px]">
             <thead>
               <tr className="bg-[var(--color-neutral-100)] border-b text-[var(--color-navy-800)] text-sm">
-                <th className="p-4 font-bold">التاريخ</th>
-                <th className="p-4 font-bold">الموظف</th>
-                <th className="p-4 font-bold text-center border-r bg-gray-50">المطالبة (شيت)</th>
-                <th className="p-4 font-bold text-center text-blue-700">بصمة الانصراف</th>
-                <th className="p-4 font-bold text-center text-purple-700 border-l">نهاية التكليف</th>
-                <th className="p-4 font-bold text-center">القرار الآلي</th>
-                <th className="p-4 font-black text-center bg-gray-200 text-lg">الاعتماد</th>
+                {userRole !== 'FACTORY_MANAGER' && <th className="p-4 w-12 text-center"></th>}
+                <th className="p-4 font-bold">التاريخ والموظف</th>
+                <th className="p-4 font-bold text-center border-r bg-gray-50 text-indigo-800">ساعات التكليف</th>
+                <th className="p-4 font-bold text-center border-l bg-gray-50 text-emerald-800">وقت الانصراف (البصمة)</th>
+                <th className="p-4 font-bold text-center">حالة المطابقة</th>
+                <th className="p-4 font-black text-center bg-gray-200">القرار المعتمد النهائي</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? <tr><td colSpan={7} className="p-8 text-center text-gray-500 font-bold">جاري التحميل...</td></tr> : 
-               displayedCalculations.length === 0 ? <tr><td colSpan={7} className="p-8 text-center text-gray-500 font-bold">لا يوجد بيانات تطابق الفلاتر الحالية.</td></tr> :
+              {loading && calculations.length === 0 ? <tr><td colSpan={6} className="p-8 text-center text-gray-500 font-bold">جاري الفحص التلقائي وتحميل البيانات...</td></tr> : 
+               displayedCalculations.length === 0 ? <tr><td colSpan={6} className="p-8 text-center text-gray-500 font-bold">لا يوجد بيانات تطابق الفلاتر. الأداء ممتاز!</td></tr> :
                displayedCalculations.map((calc, idx) => (
-                  <tr key={idx} className="border-b hover:bg-gray-50 transition">
-                    <td className="p-3 text-sm font-bold text-gray-700 whitespace-nowrap">{new Date(calc.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}</td>
-                    <td className="p-3"><div className="font-black text-[var(--color-navy-800)] text-sm">{calc.employees?.name}</div><div className="text-xs font-bold text-gray-500 mt-1">{calc.emp_number} - {calc.employees?.companies?.name}</div></td>
-                    <td className="p-3 text-center border-r bg-gray-50"><span className="font-black text-lg text-gray-800">{calc.timesheet_hours}</span></td>
-                    <td className="p-3 text-center">{calc.attendance_out ? <span className="text-sm font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded dir-ltr inline-block border border-blue-100">{new Date(calc.attendance_out).toISOString().substring(11, 16)}</span> : <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">بدون بصمة</span>}</td>
-                    <td className="p-3 text-center border-l">{calc.assigned_end_time ? <span className="text-sm font-bold text-purple-700 bg-purple-50 px-2 py-1 rounded dir-ltr inline-block border border-purple-100">{calc.assigned_end_time.substring(0, 5)}</span> : <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">بدون تكليف</span>}</td>
-                    <td className="p-3 text-center">{calc.status === 'MATCHED' ? <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto border border-green-200"><CheckCircle2 size={14} /> مطابق</span> : <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto border border-red-200 shadow-sm"><AlertCircle size={14} /> {calc.exception_type}</span>}</td>
-                    <td className="p-3 text-center bg-gray-100 font-black text-xl">{calc.final_approved_hours > 0 ? <span className="text-green-700">{calc.final_approved_hours}</span> : <span className="text-red-600">0</span>}</td>
+                  <tr key={idx} className={`border-b transition ${calc.status === 'CONFLICT' ? 'bg-red-50/30' : 'hover:bg-gray-50'}`}>
+                    {userRole !== 'FACTORY_MANAGER' && (
+                      <td className="p-4 text-center">
+                        {calc.status === 'CONFLICT' && (
+                          <input type="checkbox" className="w-4 h-4 cursor-pointer accent-orange-500" checked={selectedConflicts.includes(calc.id)} onChange={() => handleSelectConflict(calc.id)} />
+                        )}
+                      </td>
+                    )}
+                    <td className="p-3">
+                      <div className="text-sm font-bold text-gray-500 mb-1">{new Date(calc.date).toLocaleDateString('ar-EG', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
+                      <div className="font-black text-[var(--color-navy-800)] text-sm">{calc.employees?.name}</div>
+                      <div className="text-xs font-bold text-gray-500 mt-1">{calc.emp_number} - {calc.employees?.companies?.name}</div>
+                    </td>
+                    <td className="p-3 text-center border-r bg-gray-50">
+                      <div className="font-black text-xl text-indigo-700">{calc.timesheet_hours}</div>
+                      <div className="text-xs font-bold text-gray-500 mt-1">مكلف لـ {calc.assigned_end_time}</div>
+                    </td>
+                    <td className="p-3 text-center border-l bg-gray-50">
+                      {calc.attendance_out ? 
+                        <span className="text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg dir-ltr inline-block border border-emerald-200 shadow-sm">{new Date(calc.attendance_out).toISOString().substring(11, 16)}</span> : 
+                        <span className="text-xs font-bold text-red-500 bg-red-100 px-2 py-1 rounded border border-red-200">بدون بصمة انصراف</span>
+                      }
+                    </td>
+                    <td className="p-3 text-center">
+                      {calc.status === 'MATCHED' && <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto border border-green-200"><CheckCircle2 size={14} /> {calc.exception_type}</span>}
+                      {calc.status === 'RESOLVED' && <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto border border-blue-200"><CheckCircle size={14} /> {calc.exception_type}</span>}
+                      {calc.status === 'CONFLICT' && (
+                        <div className="flex flex-col gap-2 items-center">
+                          <span className="text-red-600 font-bold text-xs">{calc.exception_type}</span>
+                          {userRole !== 'FACTORY_MANAGER' && (
+                            <div className="flex gap-1 mt-1">
+                              <button onClick={() => resolveConflicts([calc.id], 'ASSIGNMENT')} className="text-[10px] bg-indigo-100 text-indigo-800 hover:bg-indigo-200 px-2 py-1 rounded font-bold transition">اعتماد التكليف</button>
+                              <button onClick={() => resolveConflicts([calc.id], 'ATTENDANCE')} className="text-[10px] bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-1 rounded font-bold transition">اعتماد البصمة</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-center bg-gray-100 border-r border-gray-200 font-black text-2xl">
+                      {calc.status === 'CONFLICT' ? <span className="text-gray-300">-</span> : <span className="text-green-700">{calc.final_approved_hours}</span>}
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -262,7 +381,7 @@ function AuditContent() {
 
 export default function AuditPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-[var(--color-navy-500)] font-bold text-xl">جاري تحميل لوحة التدقيق...</div>}>
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-[var(--color-navy-500)] font-bold text-xl">جاري التحميل...</div>}>
       <AuditContent />
     </Suspense>
   );

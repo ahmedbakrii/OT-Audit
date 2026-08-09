@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-// تم إضافة FileClock هنا
 import { Users, FileWarning, CheckCircle, Clock, TrendingUp, UsersRound, Fingerprint, ClipboardList, ShieldCheck, Filter, AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, BarChart3 as BarIcon, FileClock } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import Link from 'next/link';
@@ -21,7 +20,7 @@ export default function Home() {
 
   const [stats, setStats] = useState({
     totalEmployees: 0,
-    totalAssignments: 0,
+    totalAssignedEmployees: 0, // المتغير الجديد
     matchedRecords: 0,
     exceptionRecords: 0,
     totalApprovedHours: 0,
@@ -108,12 +107,15 @@ export default function Home() {
       ]);
 
       let totalAssignedHours = 0;
+      let totalAssignedEmps = 0; // حساب عدد العمال المكلفين
       const empAssignedMap: Record<string, any> = {};
 
       if (detailedAssignments) {
         detailedAssignments.forEach(assign => {
           (assign as any).ot_assignment_employees?.forEach((emp: any) => {
             if (activeDeptId && emp.employees?.department_id !== activeDeptId) return;
+
+            totalAssignedEmps++; // زيادة العداد لكل عامل مكلف
 
             const shift = emp.employees?.shifts?.name || '';
             const isNight = shift.includes('ليل') || shift.includes('مسا');
@@ -179,7 +181,7 @@ export default function Home() {
 
       setStats({ 
         totalEmployees: empCount || 0, 
-        totalAssignments: detailedAssignments?.length || 0, 
+        totalAssignedEmployees: totalAssignedEmps, // تمرير الرقم الجديد
         matchedRecords: matched, 
         exceptionRecords: exceptions,
         totalApprovedHours: parseFloat(approvedHours.toFixed(2)),
@@ -329,10 +331,12 @@ export default function Home() {
             <div className="bg-blue-50 p-3 rounded-xl text-blue-600"><Users size={24} /></div>
           </div>
         </div>
+        
+        {/* التعديل هنا: العمال المكلفين بدلاً من التكليفات */}
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-purple-500 transform transition hover:-translate-y-1 hover:shadow-md">
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">التكليفات المعتمدة</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalAssignments}</h3></div>
-            <div className="bg-purple-50 p-3 rounded-xl text-purple-600"><Clock size={24} /></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">إجمالي العمال المكلفين</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalAssignedEmployees}</h3></div>
+            <div className="bg-purple-50 p-3 rounded-xl text-purple-600"><UsersRound size={24} /></div>
           </div>
         </div>
 
