@@ -11,6 +11,16 @@ export const metadata: Metadata = {
   title: 'OT Audit System',
   description: 'نظام التدقيق والمطابقة الذكي لساعات العمل الإضافية',
   manifest: '/manifest.json',
+  
+  // اللمسة السحرية لأجهزة الآيفون والآيباد
+  appleWebApp: {
+    capable: true,
+    title: 'OT Audit',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    apple: '/logo.png', // لازم يكون عندك صورة logo.png في فولدر public
+  },
 }
 
 export default function RootLayout({
