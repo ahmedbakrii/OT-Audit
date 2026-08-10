@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Users, FileWarning, CheckCircle, Clock, TrendingUp, UsersRound, Fingerprint, ClipboardList, ShieldCheck, Filter, AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, BarChart3 as BarIcon, FileClock } from 'lucide-react';
+import { Users, FileWarning, CheckCircle, TrendingUp, UsersRound, Fingerprint, ClipboardList, ShieldCheck, Filter, AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, BarChart3 as BarIcon, FileClock } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -36,6 +36,7 @@ export default function Home() {
 
   const [loading, setLoading] = useState(true);
 
+  // التواريخ الافتراضية لأول وآخر الشهر الحالي
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
@@ -61,6 +62,8 @@ export default function Home() {
         setUserDeptId(data.department_id);
         setUserDeptName((data as any).departments?.name || '');
       }
+      
+      // جلب الإدارات للفلتر (فقط للأدمن أو مدير المصنع)
       if (user.role === 'ADMIN' || user.role === 'FACTORY_MANAGER') {
         const { data: depts } = await supabase.from('departments').select('id, name');
         setDepartments(depts || []);
@@ -80,22 +83,26 @@ export default function Home() {
     try {
       setLoading(true);
 
-      let activeDeptId = (userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') ? selectedDeptFilter : userDeptId;
+      // تحديد الإدارة النشطة بناءً على الصلاحيات والفلتر
+      const activeDeptId = (userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') ? selectedDeptFilter : userDeptId;
 
-      let empQuery = supabase.from('employees').select('*', { count: 'exact', head: true });
+      // 1. جلب عدد الموظفين
+      let empQuery = supabase.from('employees').select('id', { count: 'exact', head: true });
       if (activeDeptId) empQuery = empQuery.eq('department_id', activeDeptId);
 
+      // 2. جلب التكليفات المفصلة لمعرفة ساعات العمل المطلوبة (بناءً على التحديث الأخير ot_end_time)
       let detailedAssignQuery = supabase.from('ot_assignments').select(`
         date, day_end_time, night_end_time, department_id,
-        ot_assignment_employees(emp_number, employees!inner(name, companies(name), shifts(name), department_id))
+        ot_assignment_employees(emp_number, ot_end_time, shift_snapshot, employees!inner(name, companies(name), shifts(name), department_id))
       `);
 
       if (activeDeptId) detailedAssignQuery = detailedAssignQuery.eq('department_id', activeDeptId);
       if (startDate) detailedAssignQuery = detailedAssignQuery.gte('date', startDate);
       if (endDate) detailedAssignQuery = detailedAssignQuery.lte('date', endDate);
 
+      // 3. جلب سجلات التدقيق (ot_calculations) المعتمدة والمرفوضة
       let calcQuery = supabase.from('ot_calculations').select(`
-        status, exception_type, emp_number, date, timesheet_hours, final_approved_hours,
+        status, exception_type, emp_number, date, final_approved_hours, rejected_hours,
         employees!inner(name, department_id, companies(name))
       `);
       if (activeDeptId) calcQuery = calcQuery.eq('employees.department_id', activeDeptId);
@@ -106,6 +113,7 @@ export default function Home() {
         empQuery, detailedAssignQuery, calcQuery
       ]);
 
+      // --- حساب ساعات التكليفات (المطلوبة) ---
       let totalAssignedHours = 0;
       let totalAssignedEmps = 0; 
       const empAssignedMap: Record<string, any> = {};
@@ -117,12 +125,12 @@ export default function Home() {
 
             totalAssignedEmps++; 
 
-            const shift = emp.employees?.shifts?.name || '';
+            const shift = emp.shift_snapshot || emp.employees?.shifts?.name || '';
             const isNight = shift.includes('ليل') || shift.includes('مسا');
-            const isDay = !isNight;
-
-            const basicEnd = isDay ? '16:00' : '04:00';
-            const actualEnd = (isDay ? assign.day_end_time : assign.night_end_time)?.substring(0, 5) || '';
+            const basicEnd = isNight ? '04:00' : '16:00';
+            
+            // استخدام الوقت الخاص بالموظف، أو الوقت الافتراضي للتكليف لو كان قديماً
+            const actualEnd = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
 
             const getMins = (t: string) => { if (!t) return 0; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             let otDuration = getMins(actualEnd) - getMins(basicEnd);
@@ -132,7 +140,12 @@ export default function Home() {
             totalAssignedHours += hours;
 
             if (!empAssignedMap[emp.emp_number]) {
-              empAssignedMap[emp.emp_number] = { emp_number: emp.emp_number, name: emp.employees?.name || '-', company: (emp as any).employees?.companies?.name || '-', totalHours: 0 };
+              empAssignedMap[emp.emp_number] = { 
+                emp_number: emp.emp_number, 
+                name: emp.employees?.name || '-', 
+                company: (emp as any).employees?.companies?.name || '-', 
+                totalHours: 0 
+              };
             }
             empAssignedMap[emp.emp_number].totalHours += hours;
           });
@@ -140,6 +153,7 @@ export default function Home() {
       }
       const employeesHoursList = Object.values(empAssignedMap).sort((a: any, b: any) => b.totalHours - a.totalHours);
 
+      // --- حسابات التدقيق (MATCHED vs EXCEPTION) ---
       let matched = 0;
       let exceptions = 0;
       let approvedHours = 0;
@@ -149,19 +163,19 @@ export default function Home() {
 
       if (calculations) {
         calculations.forEach((calc: any) => {
-          const claimed = Number(calc.timesheet_hours) || 0;
           const approved = Number(calc.final_approved_hours) || 0;
-          approvedHours += approved;
+          const rejected = Number(calc.rejected_hours) || 0; // حقل الساعات المرفوضة لو موجود، أو ممكن نستنتجه
           
-          if (claimed > approved) {
-            rejectedHours += (claimed - approved); 
-          }
+          approvedHours += approved;
+          rejectedHours += rejected;
 
-          if (calc.status === 'MATCHED') {
+          if (calc.status === 'MATCHED' || calc.status === 'RESOLVED') {
+            // المحلول يعتبر سليم في الإحصائيات العامة
             matched++;
-          } else {
+          } else if (calc.status === 'EXCEPTION') {
             exceptions++;
-            exceptionCounts[calc.exception_type] = (exceptionCounts[calc.exception_type] || 0) + 1;
+            const typeKey = calc.exception_type || 'استثناء غير معروف';
+            exceptionCounts[typeKey] = (exceptionCounts[typeKey] || 0) + 1;
             
             if (!empExceptionsMap[calc.emp_number]) {
               empExceptionsMap[calc.emp_number] = { 
@@ -198,7 +212,7 @@ export default function Home() {
 
   const COLORS = ['#10b981', '#ef4444'];
   const pieData = [
-    { name: 'مطابق (سليم)', value: stats.matchedRecords },
+    { name: 'مطابق/محلول', value: stats.matchedRecords },
     { name: 'استثناء (مرفوض)', value: stats.exceptionRecords }
   ];
 
@@ -215,16 +229,16 @@ export default function Home() {
   if (userRole === 'MANAGER') displayDeptName = userDeptName;
   else if (selectedDeptFilter) displayDeptName = departments.find(d => d.id === selectedDeptFilter)?.name || '';
 
-  // التحية الذكية بناءً على الوقت
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'صباح الخير ☀️' : currentHour < 18 ? 'طاب مساؤك 🌤️' : 'مساء الخير 🌙';
 
   return (
-    <div className="flex flex-col space-y-8 pb-10 relative">
+    <div className="flex flex-col space-y-8 pb-10 relative animate-in fade-in">
       
+      {/* نافذة عرض ساعات الموظفين المكلفين */}
       {showHoursModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in zoom-in duration-200">
             <div className="flex justify-between items-center p-6 border-b bg-gray-50 rounded-t-xl">
               <div>
                 <h2 className="text-xl font-bold flex items-center gap-2 text-[var(--color-navy-900)]"><Timer size={22} className="text-orange-500" /> ساعات التكليفات المطلوبة</h2>
@@ -251,7 +265,7 @@ export default function Home() {
                         <td className="p-3 font-medium text-gray-800">{emp.emp_number}</td>
                         <td className="p-3 font-bold">{emp.name}</td>
                         <td className="p-3"><span className="bg-gray-100 text-xs px-2 py-1 rounded">{emp.company}</span></td>
-                        <td className="p-3 text-center"><span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full font-black text-sm">{emp.totalHours} ساعة</span></td>
+                        <td className="p-3 text-center"><span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full font-black text-sm">{emp.totalHours.toFixed(1).replace(/\.0$/, '')} ساعة</span></td>
                       </tr>
                     ))
                   )}
@@ -266,17 +280,18 @@ export default function Home() {
         </div>
       )}
 
+      {/* الهيدر الترحيبي التفاعلي */}
       <div className="bg-gradient-to-l from-[var(--color-navy-900)] to-[var(--color-navy-500)] p-8 rounded-2xl shadow-lg text-white relative overflow-hidden mt-2">
         <div className="relative z-10">
-          {/* تطبيق التحية الذكية هنا */}
           <h1 className="text-3xl font-bold mb-2">{greeting} يا {userName.split(' ')[0]}</h1>
-          <p className="text-blue-100 text-lg max-w-2xl">
-            لوحة تحكم تفاعلية توفر لك رؤية عميقة لساعات العمل الإضافي الخاصة بـ <strong className="text-white bg-blue-800/50 px-2 py-0.5 rounded">{displayDeptName}</strong>.
+          <p className="text-blue-100 text-lg max-w-2xl leading-relaxed">
+            لوحة تحكم تفاعلية توفر لك رؤية عميقة لحالة التكليفات والمطابقة مع البصمة الخاصة بـ <strong className="text-white bg-blue-800/50 px-2 py-0.5 rounded">{displayDeptName}</strong>.
           </p>
         </div>
         <div className="absolute left-0 top-0 opacity-10 transform -translate-x-1/4 -translate-y-1/4"><TrendingUp size={200} /></div>
       </div>
 
+      {/* الروابط السريعة */}
       <div>
         <h2 className="text-xl font-bold text-[var(--color-navy-900)] mb-4 flex items-center gap-2">الوصول السريع</h2>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -294,7 +309,7 @@ export default function Home() {
           </Link>
           <Link href="/timesheet" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-orange-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
             <div className="bg-orange-50 p-4 rounded-full text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition transform group-hover:scale-110"><FileClock size={28} /></div>
-            <span className="font-bold text-gray-700 group-hover:text-orange-700">سجل التايم شيت</span>
+            <span className="font-bold text-gray-700 group-hover:text-orange-700">تصدير التايم شيت</span>
           </Link>
           <Link href="/audit" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-emerald-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
             <div className="bg-emerald-50 p-4 rounded-full text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition transform group-hover:scale-110"><ShieldCheck size={28} /></div>
@@ -303,6 +318,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* الفلاتر */}
       <div className="bg-white p-5 rounded-xl shadow-sm border flex flex-col md:flex-row justify-between items-center gap-4">
         <h2 className="text-lg font-bold text-[var(--color-navy-900)] flex items-center gap-2"><Filter size={20} className="text-[var(--color-navy-500)]" /> فلتر لوحة التحكم</h2>
         <div className="flex flex-wrap items-center gap-4">
@@ -310,7 +326,7 @@ export default function Home() {
           {(userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') && (
             <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-lg p-1.5 px-3">
               <span className="text-sm font-bold text-blue-900">الإدارة:</span>
-              <select value={selectedDeptFilter} onChange={(e) => setSelectedDeptFilter(e.target.value)} className="bg-transparent border-none outline-none font-bold text-sm text-blue-800">
+              <select value={selectedDeptFilter} onChange={(e) => setSelectedDeptFilter(e.target.value)} className="bg-transparent border-none outline-none font-bold text-sm text-blue-800 cursor-pointer">
                 <option value="">كل الإدارات</option>
                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -329,18 +345,19 @@ export default function Home() {
         </div>
       </div>
 
+      {/* الكروت الإحصائية */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-blue-500 transform transition hover:-translate-y-1 hover:shadow-md">
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">موظفين القسم</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalEmployees}</h3></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">إجمالي الموظفين</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalEmployees}</h3></div>
             <div className="bg-blue-50 p-3 rounded-xl text-blue-600"><Users size={24} /></div>
           </div>
         </div>
         
-        <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-purple-500 transform transition hover:-translate-y-1 hover:shadow-md">
+        <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-purple-500 transform transition hover:-translate-y-1 hover:shadow-md cursor-pointer" onClick={() => setShowHoursModal(true)}>
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">إجمالي العمال المكلفين</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalAssignedEmployees}</h3></div>
-            <div className="bg-purple-50 p-3 rounded-xl text-purple-600"><UsersRound size={24} /></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">العمال المكلفين إضافي</p><h3 className="text-3xl font-black text-[var(--color-navy-900)]">{loading ? '...' : stats.totalAssignedEmployees}</h3></div>
+            <div className="bg-purple-50 p-3 rounded-xl text-purple-600"><ClipboardList size={24} /></div>
           </div>
         </div>
 
@@ -353,33 +370,35 @@ export default function Home() {
 
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-emerald-500 transform transition hover:-translate-y-1 hover:shadow-md cursor-pointer" onClick={() => router.push('/audit?status=MATCHED')}>
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">الساعات السليمة (مطابق)</p><h3 className="text-3xl font-black text-emerald-600">{loading ? '...' : stats.totalApprovedHours} <span className="text-sm font-bold text-gray-500">ساعة</span></h3></div>
-            <div className="bg-emerald-50 p-3 rounded-xl text-emerald-600"><Timer size={24} /></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">الساعات المعتمدة (مطابق)</p><h3 className="text-3xl font-black text-emerald-600">{loading ? '...' : stats.totalApprovedHours} <span className="text-sm font-bold text-gray-500">ساعة</span></h3></div>
+            <div className="bg-emerald-50 p-3 rounded-xl text-emerald-600"><ShieldCheck size={24} /></div>
           </div>
         </div>
       </div>
       
+      {/* الكروت الثانوية للاستثناءات */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-green-500 transform transition hover:-translate-y-1 hover:shadow-md cursor-pointer" onClick={() => router.push('/audit?status=MATCHED')}>
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">سجلات مطابقة (عدد)</p><h3 className="text-3xl font-black text-green-600">{loading ? '...' : stats.matchedRecords}</h3></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">سجلات المطابقة الناجحة</p><h3 className="text-3xl font-black text-green-600">{loading ? '...' : stats.matchedRecords} <span className="text-sm text-gray-500">سجل</span></h3></div>
             <div className="bg-green-50 p-3 rounded-xl text-green-600"><CheckCircle size={24} /></div>
           </div>
         </div>
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-red-500 transform transition hover:-translate-y-1 hover:shadow-md cursor-pointer" onClick={() => router.push('/audit?status=EXCEPTION')}>
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">السجلات المرفوضة</p><h3 className="text-3xl font-black text-red-600">{loading ? '...' : stats.exceptionRecords}</h3></div>
-            <div className="bg-red-50 p-3 rounded-xl text-red-600"><FileWarning size={24} /></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">السجلات المرفوضة والمخالفة</p><h3 className="text-3xl font-black text-red-600">{loading ? '...' : stats.exceptionRecords} <span className="text-sm text-gray-500">سجل</span></h3></div>
+            <div className="bg-red-50 p-3 rounded-xl text-red-600"><AlertTriangle size={24} /></div>
           </div>
         </div>
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-rose-600 transform transition hover:-translate-y-1 hover:shadow-md cursor-pointer" onClick={() => router.push('/audit?status=EXCEPTION')}>
           <div className="flex justify-between items-start">
-            <div><p className="text-gray-500 text-sm font-bold mb-1">الساعات المرفوضة / تلاعب</p><h3 className="text-3xl font-black text-rose-600">{loading ? '...' : stats.totalRejectedHours} <span className="text-sm font-bold text-gray-500">ساعة</span></h3></div>
-            <div className="bg-rose-50 p-3 rounded-xl text-rose-600"><TimerOff size={24} /></div>
+            <div><p className="text-gray-500 text-sm font-bold mb-1">الساعات المرفوضة (استثناءات)</p><h3 className="text-3xl font-black text-rose-600">{loading ? '...' : stats.totalRejectedHours} <span className="text-sm font-bold text-gray-500">ساعة</span></h3></div>
+            <div className="bg-rose-50 p-3 rounded-xl text-rose-600"><FileWarning size={24} /></div>
           </div>
         </div>
       </div>
 
+      {/* الرسوم البيانية */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border lg:col-span-1">
           <h3 className="text-lg font-bold text-[var(--color-navy-900)] mb-6 border-b pb-2 flex items-center gap-2"><PieIcon size={18} /> نسبة المطابقة للفترة</h3>
@@ -418,27 +437,28 @@ export default function Home() {
         </div>
       </div>
 
+      {/* الموظفين الأكثر تسجيلاً للاستثناءات */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="p-5 border-b bg-red-50 flex justify-between items-center">
-          <h3 className="font-bold text-red-800 flex items-center gap-2"><AlertTriangle size={20} /> الموظفين الأكثر تسجيلاً للاستثناءات (Top 5)</h3>
-          <span className="text-xs font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full">يجب مراجعة هؤلاء الموظفين</span>
+          <h3 className="font-bold text-red-800 flex items-center gap-2"><AlertTriangle size={20} /> الموظفين الأكثر تسجيلاً للمخالفات (Top 5)</h3>
+          <span className="text-xs font-bold text-red-600 bg-red-100 px-3 py-1 rounded-full border border-red-200 shadow-sm">يجب مراجعة هؤلاء الموظفين</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse">
             <thead>
               <tr className="bg-white border-b text-gray-600 text-sm">
-                <th className="p-4 font-bold">الرقم</th><th className="p-4 font-bold">اسم الموظف</th><th className="p-4 font-bold">الشركة</th><th className="p-4 font-bold text-center">عدد الاستثناءات المرفوضة</th>
+                <th className="p-4 font-bold">الرقم</th><th className="p-4 font-bold">اسم الموظف</th><th className="p-4 font-bold">الشركة</th><th className="p-4 font-bold text-center">عدد المخالفات المرفوضة</th>
               </tr>
             </thead>
             <tbody>
               {loading ? <tr><td colSpan={4} className="p-8 text-center text-gray-500 font-bold">جاري التحميل...</td></tr> : 
-               topDebatedEmployees.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-gray-500 font-bold">لا توجد أي استثناءات مسجلة للفترة المحددة. الأداء ممتاز!</td></tr> :
+               topDebatedEmployees.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-green-600 font-bold">لا توجد أي مخالفات مسجلة للفترة المحددة. الأداء ممتاز!</td></tr> :
                topDebatedEmployees.map((emp, idx) => (
                   <tr key={idx} className="border-b hover:bg-gray-50 transition cursor-pointer" onClick={() => router.push(`/audit?search=${emp.emp_number}`)}>
                     <td className="p-4 font-medium text-gray-800">{emp.emp_number}</td>
                     <td className="p-4 font-black text-[var(--color-navy-800)]">{emp.name}</td>
-                    <td className="p-4 text-sm font-bold text-gray-600"><span className="bg-gray-100 px-2 py-1 rounded">{emp.company}</span></td>
-                    <td className="p-4 text-center"><span className="inline-flex items-center justify-center bg-red-100 text-red-700 w-8 h-8 rounded-full font-black">{emp.count}</span></td>
+                    <td className="p-4 text-sm font-bold text-gray-600"><span className="bg-gray-100 border px-2 py-1 rounded">{emp.company}</span></td>
+                    <td className="p-4 text-center"><span className="inline-flex items-center justify-center bg-red-100 text-red-700 border border-red-200 w-8 h-8 rounded-full font-black shadow-sm">{emp.count}</span></td>
                   </tr>
                 ))}
             </tbody>

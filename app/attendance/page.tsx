@@ -36,10 +36,8 @@ export default function AttendancePage() {
       return;
     }
     const user = JSON.parse(userStr);
-    if (user.role === 'DATA_ENTRY') {
-      router.push('/assignments');
-      return;
-    }
+    
+    // 🔴 تم إزالة سطر طرد مدخل البيانات (DATA_ENTRY) للسماح له بالدخول
 
     setUserRole(user.role);
     document.title = 'سجل الحضور | OT Audit';
@@ -189,8 +187,8 @@ export default function AttendancePage() {
           </p>
         </div>
         
-        {/* زرار الرفع متاح للأدمن والمدير فقط (مدير المصنع يتفرج بس) */}
-        {(userRole === 'ADMIN' || userRole === 'MANAGER') && (
+        {/* 🔴 تم تعديل الصلاحية هنا للسماح لمدخل البيانات بالرفع */}
+        {(userRole === 'ADMIN' || userRole === 'MANAGER' || userRole === 'DATA_ENTRY') && (
           <>
             <input type="file" accept=".xlsx" multiple className="hidden" ref={fileInputRef} onChange={handleMultipleFilesUpload} />
             <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex items-center gap-2 bg-[var(--color-navy-500)] text-white px-6 py-2 rounded-lg hover:bg-[var(--color-navy-800)] transition font-bold shadow-md">

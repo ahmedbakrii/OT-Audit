@@ -109,7 +109,7 @@ export default function Navbar() {
   const navLinks = [
     { name: 'الموظفين', href: '/employees', icon: Users, roles: ['ADMIN', 'MANAGER'] },
     { name: 'البصمة', href: '/attendance', icon: Fingerprint, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
-    { name: 'التكليفات', href: '/assignments', icon: ClipboardList, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
+    { name: 'التكاليف', href: '/assignments', icon: ClipboardList, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
     { name: 'التايم شيت', href: '/timesheet', icon: FileClock, roles: ['ADMIN', 'MANAGER'] },
     { name: 'المطابقة', href: '/audit', icon: ShieldCheck, roles: ['ADMIN', 'MANAGER'] },
   ];
