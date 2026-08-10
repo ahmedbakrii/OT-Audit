@@ -4,7 +4,7 @@ import { useEffect, useState, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   CheckCircle2, AlertCircle, Users, Calendar, Filter, Save, Trash2, Search, Eye, X, Printer,
-  Building2, SunMoon, Briefcase, Edit, Activity, Timer, AlertTriangle, UserX, BarChart3
+  Building2, SunMoon, Briefcase, Edit, Activity, Timer, AlertTriangle, UserX, BarChart3, Clock
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import { useRouter } from 'next/navigation';
@@ -32,19 +32,16 @@ export default function AssignmentsPage() {
 
   const [departments, setDepartments] = useState<any[]>([]);
 
-  // ==========================================
-  // فلاتر الصفحة العلوية (Dashboard Filters)
-  // ==========================================
+  // Filters
   const [filterStartDate, setFilterStartDate] = useState(todayStr);
   const [filterEndDate, setFilterEndDate] = useState(todayStr);
   const [filterAdminDept, setFilterAdminDept] = useState('');
 
-  // ==========================================
-  // بيانات فورم الإدخال (Create/Edit Form)
-  // ==========================================
+  // Form
   const [formDate, setFormDate] = useState(todayStr);
   const [formDept, setFormDept] = useState('');
   
+  // Default Times (تستخدم كقيمة افتراضية عند اختيار الموظف فقط)
   const [dayEndHour, setDayEndHour] = useState('20');
   const [dayEndMinute, setDayEndMinute] = useState('00');
   const [nightEndHour, setNightEndHour] = useState('08');
@@ -52,9 +49,13 @@ export default function AssignmentsPage() {
 
   const [availableEmployees, setAvailableEmployees] = useState<any[]>([]);
   const [selectedEmpNumbers, setSelectedEmpNumbers] = useState<string[]>([]);
+  
+  // 🔴 NEW: حالة جديدة لحفظ الوقت الفعلي المستقل لكل موظف
+  const [empTimes, setEmpTimes] = useState<Record<string, string>>({});
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // فلاتر الموظفين داخل الفورم
+  // Form Filters
   const [searchEmp, setSearchEmp] = useState('');
   const [filterCompany, setFilterCompany] = useState('');
   const [filterShift, setFilterShift] = useState('');
@@ -67,7 +68,7 @@ export default function AssignmentsPage() {
     totalHours: 0,
     topDept: { name: '-', hours: 0 },
     topExcDept: { name: '-', count: 0 },
-    topEmp: { name: '-', hours: 0 }
+    topEmp: { name: '-', hoursMsg: '' }
   });
 
   const [chartData, setChartData] = useState<any[]>([]);
@@ -92,9 +93,7 @@ export default function AssignmentsPage() {
   }, [router]);
 
   useEffect(() => {
-    if (userRole) {
-      fetchPageData();
-    }
+    if (userRole) fetchPageData();
   }, [filterStartDate, filterEndDate, filterAdminDept, userRole, userDeptId]);
 
   async function fetchLookups(role: string | null, deptId: string | null) {
@@ -111,9 +110,10 @@ export default function AssignmentsPage() {
       setLoading(true);
       const activeDeptId = (userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') ? filterAdminDept : userDeptId;
 
+      // 🔴 تم إضافة ot_end_time للاستعلام
       let assignQuery = supabase.from('ot_assignments').select(`
           id, date, day_end_time, night_end_time, status, created_at, department_id, departments(name),
-          ot_assignment_employees(emp_number, employees(name, job_title, companies(name), shifts(name)))
+          ot_assignment_employees(emp_number, ot_end_time, shift_snapshot, employees(name, job_title, companies(name), shifts(name)))
         `).gte('date', filterStartDate).lte('date', filterEndDate).order('date', { ascending: false });
 
       if (activeDeptId) assignQuery = assignQuery.eq('department_id', activeDeptId);
@@ -138,10 +138,12 @@ export default function AssignmentsPage() {
       fetchedAssignments.forEach(a => {
         const dName = (a as any).departments?.name || 'أخرى';
         (a as any).ot_assignment_employees?.forEach((e: any) => {
-          const shiftName = e.employees?.shifts?.name || '';
+          const shiftName = e.shift_snapshot || e.employees?.shifts?.name || '';
           const isNight = shiftName.includes('ليل') || shiftName.includes('مسا');
           const basicEnd = isNight ? '04:00' : '16:00';
-          const actualEnd = (isNight ? a.night_end_time : a.day_end_time)?.substring(0, 5) || '';
+          
+          // 🔴 اللوجيك الجديد: الأولوية لوقت الموظف الفعلي، وإذا كان فارغاً (بيانات قديمة) نأخذ وقت التكليف
+          const actualEnd = e.ot_end_time?.substring(0, 5) || (isNight ? a.night_end_time : a.day_end_time)?.substring(0, 5) || '';
 
           const getMins = (t: string) => { if (!t) return 0; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
           let diff = getMins(actualEnd) - getMins(basicEnd);
@@ -160,10 +162,37 @@ export default function AssignmentsPage() {
         if (mins > topD.hours * 60) topD = { name, hours: Math.round((mins / 60) * 10) / 10 };
       });
 
-      let topE = { name: '-', hours: 0 };
-      Object.entries(empMins).forEach(([name, mins]) => {
-        if (mins > topE.hours * 60) topE = { name, hours: Math.round((mins / 60) * 10) / 10 };
-      });
+      let exceptionalEmp = { name: 'لا يوجد تفاوت ملحوظ', hoursMsg: '' };
+      const empList = Object.entries(empMins);
+      
+      if (empList.length > 0) {
+        const totalAllMins = empList.reduce((sum, [_, mins]) => sum + mins, 0);
+        const averageMins = totalAllMins / empList.length;
+
+        let outliers: {name: string, hours: number}[] = [];
+
+        empList.forEach(([name, mins]) => {
+          const diffFromAverage = mins - averageMins;
+          if (diffFromAverage >= 120) {
+            const shortName = name.split(' ').slice(0, 2).join(' ');
+            outliers.push({ name: shortName, hours: Math.round((mins / 60) * 10) / 10 });
+          }
+        });
+
+        if (outliers.length === 1) {
+          exceptionalEmp = { 
+            name: outliers[0].name, 
+            hoursMsg: `مسجل ${outliers[0].hours} ساعة (أعلى من المتوسط)` 
+          };
+        } 
+        else if (outliers.length > 1) {
+          const namesJoined = outliers.map(o => o.name).join('، ');
+          exceptionalEmp = { 
+            name: `${outliers.length} عمال (تجاوزوا المتوسط)`, 
+            hoursMsg: namesJoined 
+          };
+        }
+      }
 
       let deptExc: Record<string, number> = {};
       (calcsData || []).forEach(c => {
@@ -179,7 +208,7 @@ export default function AssignmentsPage() {
       setStats({
         totalHours: Math.round((totalAssignedMins / 60) * 10) / 10,
         topDept: topD,
-        topEmp: topE,
+        topEmp: exceptionalEmp,
         topExcDept: topExc
       });
 
@@ -190,7 +219,7 @@ export default function AssignmentsPage() {
 
   useEffect(() => {
     if (formDept) fetchEmployeesForForm();
-    else { setAvailableEmployees([]); setSelectedEmpNumbers([]); }
+    else { setAvailableEmployees([]); setSelectedEmpNumbers([]); setEmpTimes({}); }
   }, [formDept]);
 
   async function fetchEmployeesForForm() {
@@ -198,7 +227,10 @@ export default function AssignmentsPage() {
       const { data, error } = await supabase.from('employees').select(`emp_number, name, job_title, companies(name), shifts(name)`).eq('department_id', formDept);
       if (error) throw error;
       setAvailableEmployees(data || []);
-      if (!editingAssignmentId) setSelectedEmpNumbers([]);
+      if (!editingAssignmentId) {
+        setSelectedEmpNumbers([]);
+        setEmpTimes({});
+      }
     } catch (error) { console.error(error); }
   }
 
@@ -216,23 +248,44 @@ export default function AssignmentsPage() {
 
   const displayedAssignments = assignments;
 
+  // 🔴 تحديد الكل مع إعطاء الوقت الافتراضي
   const handleSelectAllDisplayed = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const displayedIds = displayedEmployees.map(emp => emp.emp_number);
     if (e.target.checked) {
-      setSelectedEmpNumbers(Array.from(new Set([...selectedEmpNumbers, ...displayedIds])));
+      const newSelected = [...selectedEmpNumbers];
+      const newTimes = { ...empTimes };
+      
+      displayedEmployees.forEach(emp => {
+        if (!newSelected.includes(emp.emp_number)) {
+          newSelected.push(emp.emp_number);
+          const isNight = emp.shifts?.name?.includes('ليل') || emp.shifts?.name?.includes('مسا');
+          newTimes[emp.emp_number] = isNight ? `${nightEndHour}:${nightEndMinute}` : `${dayEndHour}:${dayEndMinute}`;
+        }
+      });
+      setSelectedEmpNumbers(newSelected);
+      setEmpTimes(newTimes);
     } else {
+      const displayedIds = displayedEmployees.map(emp => emp.emp_number);
       setSelectedEmpNumbers(selectedEmpNumbers.filter(id => !displayedIds.includes(id)));
     }
   };
 
-  const handleSelectEmp = (empNumber: string) => {
+  // 🔴 تحديد موظف مفرد مع إعطائه الوقت الافتراضي القابل للتعديل
+  const handleSelectEmp = (empNumber: string, shiftName: string) => {
     if (selectedEmpNumbers.includes(empNumber)) {
       setSelectedEmpNumbers(selectedEmpNumbers.filter(id => id !== empNumber));
     } else {
       setSelectedEmpNumbers([...selectedEmpNumbers, empNumber]);
+      const isNight = shiftName?.includes('ليل') || shiftName?.includes('مسا');
+      setEmpTimes(prev => ({
+        ...prev, 
+        [empNumber]: isNight ? `${nightEndHour}:${nightEndMinute}` : `${dayEndHour}:${dayEndMinute}`
+      }));
     }
   };
 
+  // ==========================================
+  // دالة الحفظ مع (محرك التدقيق والفروقات والدمج)
+  // ==========================================
   const handleCreateOrUpdateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (userRole === 'FACTORY_MANAGER') return; 
@@ -248,29 +301,166 @@ export default function AssignmentsPage() {
     setIsSubmitting(true);
 
     try {
+      // 🔴 1. التحقق من وجود Assignment لنفس الإدارة ونفس اليوم
+      let targetAssignmentId = editingAssignmentId;
+      let existingAssignEmps: any[] = [];
+      let isAppendingMode = false;
+
+      if (!targetAssignmentId) {
+        // نحن في وضع الـ Create. نبحث عن تكليف موجود
+        const { data: existingAssign } = await supabase
+          .from('ot_assignments')
+          .select('id')
+          .eq('date', formDate)
+          .eq('department_id', formDept)
+          .maybeSingle();
+
+        if (existingAssign) {
+          targetAssignmentId = existingAssign.id;
+          isAppendingMode = true;
+          // جلب العمال الحاليين لمنع التكرار
+          const { data: eEmps } = await supabase.from('ot_assignment_employees').select('emp_number').eq('assignment_id', targetAssignmentId);
+          existingAssignEmps = eEmps?.map(e => e.emp_number) || [];
+        }
+      }
+
+      // تصفية الموظفين المكررين إذا كنا في وضع الإلحاق (Append)
+      let finalEmpNumbersToProcess = selectedEmpNumbers;
+      if (isAppendingMode) {
+        const duplicates = selectedEmpNumbers.filter(id => existingAssignEmps.includes(id));
+        finalEmpNumbersToProcess = selectedEmpNumbers.filter(id => !existingAssignEmps.includes(id));
+        
+        if (duplicates.length > 0) {
+          showToast(`تم تجاهل ${duplicates.length} موظف لوجودهم مسبقاً في تكليف اليوم.`, 'error');
+        }
+        
+        if (finalEmpNumbersToProcess.length === 0) {
+          setIsSubmitting(false);
+          return showToast('جميع الموظفين المحددين موجودين بالفعل في تكليف اليوم!', 'error');
+        }
+      }
+
+      // 2. تحضير بيانات الموظفين للحفظ وللإشعار
+      let totalAssignmentMins = 0;
+      let notificationDetails = '';
+      
+      const processedEmps = finalEmpNumbersToProcess.map(emp_number => {
+        const empDetails = availableEmployees.find(e => e.emp_number === emp_number);
+        const shiftName = empDetails?.shifts?.name || 'غير محدد';
+        const jobTitle = empDetails?.job_title || 'غير محدد';
+        const companyName = empDetails?.companies?.name || 'الشركة';
+        const empName = empDetails?.name || emp_number;
+        
+        const isNight = shiftName.includes('ليل') || shiftName.includes('مسا');
+        const basicEnd = isNight ? '04:00' : '16:00';
+        
+        // 🔴 أخذ الوقت الخاص من الـ State
+        const specificEndTime = empTimes[emp_number] || (isNight ? `${nightEndHour}:${nightEndMinute}` : `${dayEndHour}:${dayEndMinute}`);
+        
+        const getMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        let diff = getMins(specificEndTime) - getMins(basicEnd);
+        if (diff < 0) diff += 24 * 60;
+        
+        totalAssignmentMins += diff;
+        const hoursStr = (diff / 60).toFixed(1).replace(/\.0$/, '');
+
+        return {
+          emp_number,
+          empName,
+          jobTitle,
+          shiftName,
+          companyName,
+          specificEndTime, // الوقت للإدخال في الداتابيز
+          mins: diff,
+          hoursStr,
+          shift_snapshot: shiftName
+        };
+      });
+
+      const avgMins = totalAssignmentMins / processedEmps.length;
+      let outliersMsg = '';
+      let topEmpName = '';
+      let topEmpMins = -1;
+
+      processedEmps.forEach(emp => {
+        if (emp.mins > topEmpMins) {
+          topEmpMins = emp.mins;
+          topEmpName = emp.empName;
+        }
+
+        const diffFromAvg = emp.mins - avgMins;
+        if (diffFromAvg >= 90) {
+          outliersMsg += `\n⚠️ زيادة ملحوظة: ${emp.empName} (+${(diffFromAvg/60).toFixed(1).replace(/\.0$/, '')} ساعة عن المتوسط)`;
+        } else if (diffFromAvg <= -90) {
+          outliersMsg += `\n⚠️ نقص ملحوظ: ${emp.empName} (-${(Math.abs(diffFromAvg)/60).toFixed(1).replace(/\.0$/, '')} ساعة عن المتوسط)`;
+        }
+        
+        notificationDetails += `👤 ${emp.empName} _ ${emp.jobTitle} _ ${emp.shiftName} _ ${emp.companyName} _ ${emp.hoursStr} ساعات\n`;
+      });
+
+      // 3. كشف التعديلات الدقيقة (Diff Engine for Edits)
+      let editChangesDetails = '';
       if (editingAssignmentId) {
+        const oldAssign = assignments.find(a => a.id === editingAssignmentId);
+        if (oldAssign) {
+          const oldEmpsMap = new Map();
+          oldAssign.ot_assignment_employees?.forEach((e: any) => {
+            const sName = e.shift_snapshot || e.employees?.shifts?.name || '';
+            const isN = sName.includes('ليل') || sName.includes('مسا');
+            const bEnd = isN ? '04:00' : '16:00';
+            const aEnd = e.ot_end_time?.substring(0, 5) || (isN ? oldAssign.night_end_time : oldAssign.day_end_time)?.substring(0, 5) || '';
+            const getM = (t: string) => { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+            let d = getM(aEnd) - getM(bEnd);
+            if (d < 0) d += 24 * 60;
+            oldEmpsMap.set(e.emp_number, { name: e.employees?.name, mins: d });
+          });
+
+          editChangesDetails += `\n🔄 **تفاصيل التعديلات التي تمت:**\n`;
+          let hasChanges = false;
+
+          processedEmps.forEach(newEmp => {
+            if (!oldEmpsMap.has(newEmp.emp_number)) {
+              editChangesDetails += `➕ تمت إضافة: ${newEmp.empName} (${newEmp.hoursStr} ساعات)\n`;
+              hasChanges = true;
+            } else {
+              const oldMins = oldEmpsMap.get(newEmp.emp_number).mins;
+              if (newEmp.mins > oldMins) {
+                editChangesDetails += `🔺 زيادة ساعات: ${newEmp.empName} (من ${oldMins/60} إلى ${newEmp.hoursStr})\n`;
+                hasChanges = true;
+              } else if (newEmp.mins < oldMins) {
+                editChangesDetails += `🔻 تقليل ساعات: ${newEmp.empName} (من ${oldMins/60} إلى ${newEmp.hoursStr})\n`;
+                hasChanges = true;
+              }
+              oldEmpsMap.delete(newEmp.emp_number);
+            }
+          });
+
+          oldEmpsMap.forEach((val) => {
+            editChangesDetails += `❌ تمت إزالة: ${val.name}\n`;
+            hasChanges = true;
+          });
+
+          if (!hasChanges) editChangesDetails = '';
+        }
+      }
+
+      // 4. الحفظ في الداتابيز
+      if (editingAssignmentId) {
+        // حالة التعديل: مزامنة كاملة (حذف القديم وإدخال الجديد) لأن المستخدم في Edit Mode
         await supabase
           .from('ot_assignments')
           .update({
             date: formDate,
             department_id: formDept,
-            day_end_time: `${dayEndHour}:${dayEndMinute}:00`,
+            day_end_time: `${dayEndHour}:${dayEndMinute}:00`, // كـ Default للمستقبل
             night_end_time: `${nightEndHour}:${nightEndMinute}:00`
           })
           .eq('id', editingAssignmentId);
 
         await supabase.from('ot_assignment_employees').delete().eq('assignment_id', editingAssignmentId);
-
-        const empRecords = selectedEmpNumbers.map(emp_number => ({
-          assignment_id: editingAssignmentId,
-          emp_number
-        }));
-
-        await supabase.from('ot_assignment_employees').insert(empRecords);
-        showToast('تم تعديل التكليف بنجاح!', 'success');
-        setEditingAssignmentId(null);
-
-      } else {
+        
+      } else if (!targetAssignmentId) {
+        // حالة الإنشاء لأول مرة في هذا اليوم
         const { data: assignment, error: assignError } = await supabase
           .from('ot_assignments')
           .insert([{
@@ -284,17 +474,51 @@ export default function AssignmentsPage() {
           .single();
 
         if (assignError) throw assignError;
-
-        const empRecords = selectedEmpNumbers.map(emp_number => ({
-          assignment_id: assignment.id,
-          emp_number
-        }));
-
-        await supabase.from('ot_assignment_employees').insert(empRecords);
-        showToast('تم اعتماد التكليف بنجاح!', 'success');
+        targetAssignmentId = assignment.id;
       }
 
+      // إدخال العمال بالوقت الخاص بهم (ot_end_time)
+      const finalEmpRecords = processedEmps.map(emp => ({ 
+        assignment_id: targetAssignmentId, 
+        emp_number: emp.emp_number,
+        shift_snapshot: emp.shift_snapshot,
+        ot_end_time: `${emp.specificEndTime}:00` // 🔴 حفظ الوقت المستقل
+      }));
+      await supabase.from('ot_assignment_employees').insert(finalEmpRecords);
+
+      // 5. بناء وإرسال الإشعار الذكي
+      const userStr = localStorage.getItem('ot_user');
+      const userName = userStr ? JSON.parse(userStr).name : 'مستخدم';
+      
+      let notifTitle = '';
+      if (editingAssignmentId) notifTitle = '🚨 تعديل تكليف مسبق';
+      else if (isAppendingMode) notifTitle = '🚨 إلحاق موظفين بتكليف اليوم';
+      else notifTitle = '🚨 تكليف جديد';
+
+      let notifBody = `👤 بواسطة: ${userName}\n📅 تاريخ التكليف: ${new Date(formDate).toLocaleDateString('en-GB')}\n👥 العمال المتأثرين: ${processedEmps.length} عمال\n⏱️ إجمالي الساعات للعملية: ${(totalAssignmentMins / 60).toFixed(1).replace(/\.0$/, '')} ساعة\n\n`;
+
+      if (editingAssignmentId && editChangesDetails) {
+        notifBody += editChangesDetails;
+      } else {
+        notifBody += notificationDetails;
+        if (outliersMsg) notifBody += `\n${outliersMsg}\n`;
+        notifBody += `\n🏆 أكثر موظف مكلف: ${topEmpName} (${(topEmpMins / 60).toFixed(1).replace(/\.0$/, '')} ساعات)`;
+      }
+
+      await supabase.from('notifications').insert([{
+        title: notifTitle,
+        body: notifBody,
+        department_id: formDept,
+        assignment_id: targetAssignmentId // 🔴 لربط الإشعار
+      }]);
+
+      window.dispatchEvent(new Event('new_notification'));
+
+      showToast(editingAssignmentId ? 'تم تعديل التكليف بنجاح!' : isAppendingMode ? 'تم إلحاق الموظفين بنجاح!' : 'تم اعتماد التكليف بنجاح!', 'success');
+      
+      setEditingAssignmentId(null);
       setSelectedEmpNumbers([]);
+      setEmpTimes({});
       fetchPageData();
 
     } catch (error) {
@@ -313,12 +537,10 @@ export default function AssignmentsPage() {
     }
 
     setEditingAssignmentId(assign.id);
-    
     setFormDate(assign.date);
     setPrintDate(assign.date); 
     setFilterStartDate(assign.date);
     setFilterEndDate(assign.date);
-
     setFormDept(assign.department_id);
 
     if (assign.day_end_time) {
@@ -333,8 +555,19 @@ export default function AssignmentsPage() {
       setNightEndMinute(nm);
     }
 
-    const empIds = assign.ot_assignment_employees?.map((e: any) => e.emp_number) || [];
+    const empIds: string[] = [];
+    const timesMap: Record<string, string> = {};
+    
+    assign.ot_assignment_employees?.forEach((e: any) => {
+      empIds.push(e.emp_number);
+      const isNight = (e.shift_snapshot || e.employees?.shifts?.name || '').includes('ليل');
+      // 🔴 جلب الوقت المستقل أو الوراثة من التكليف للبيانات القديمة
+      const endTime = e.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5);
+      if (endTime) timesMap[e.emp_number] = endTime;
+    });
+
     setSelectedEmpNumbers(empIds);
+    setEmpTimes(timesMap);
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -342,6 +575,7 @@ export default function AssignmentsPage() {
   const cancelEditing = () => {
     setEditingAssignmentId(null);
     setSelectedEmpNumbers([]);
+    setEmpTimes({});
     setFormDate(todayStr);
   };
 
@@ -368,13 +602,35 @@ export default function AssignmentsPage() {
   const handleBulkDelete = async () => {
     if (userRole === 'FACTORY_MANAGER' || selectedAssignments.length === 0) return;
 
-    if (!confirm(`هل أنت متأكد من حذف ${selectedAssignments.length} تكليف بشكل نهائي؟`)) {
-      return;
-    }
+    if (!confirm(`هل أنت متأكد من حذف ${selectedAssignments.length} تكليف بشكل نهائي؟`)) return;
 
     try {
       setLoading(true);
+      
+      const deletedAssigns = assignments.filter(a => selectedAssignments.includes(a.id));
+      const targetDeptId = deletedAssigns[0]?.department_id || formDept;
+
+      let totalDeletedEmps = 0;
+      let deletedDates: string[] = [];
+
+      deletedAssigns.forEach(a => {
+        totalDeletedEmps += a.ot_assignment_employees?.length || 0;
+        const dStr = new Date(a.date).toLocaleDateString('en-GB');
+        if (!deletedDates.includes(dStr)) deletedDates.push(dStr);
+      });
+
       await supabase.from('ot_assignments').delete().in('id', selectedAssignments);
+      
+      const userName = JSON.parse(localStorage.getItem('ot_user') || '{}').name || 'مستخدم';
+      const notifBody = `🗑️ بواسطة: ${userName}\nتم حذف عدد (${selectedAssignments.length}) تكليفات نهائياً من النظام.\n\n📅 أيام التكليفات الملغاة:\n${deletedDates.join(' ، ')}\n👥 إجمالي العمال الملغى تكليفهم: ${totalDeletedEmps} عامل`;
+
+      await supabase.from('notifications').insert([{
+        title: '🚨 حذف تكليفات (مجمع)',
+        body: notifBody,
+        department_id: targetDeptId
+      }]);
+      window.dispatchEvent(new Event('new_notification'));
+
       showToast('تم حذف التكليفات المحددة بنجاح.', 'success');
       fetchPageData();
     } catch (error) {
@@ -383,12 +639,37 @@ export default function AssignmentsPage() {
     }
   };
 
-  const handleDeleteAssignment = async (id: string) => {
+  const handleDeleteAssignment = async (assign: any) => {
     if (userRole === 'FACTORY_MANAGER') return; 
     if (!confirm('هل أنت متأكد من إلغاء هذا التكليف بالكامل؟')) return;
 
     try {
-      await supabase.from('ot_assignments').delete().eq('id', id);
+      let totalMins = 0;
+      assign.ot_assignment_employees?.forEach((e: any) => {
+        const sName = e.shift_snapshot || e.employees?.shifts?.name || '';
+        const isN = sName.includes('ليل') || sName.includes('مسا');
+        const bEnd = isN ? '04:00' : '16:00';
+        const aEnd = e.ot_end_time?.substring(0, 5) || (isN ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
+        const getM = (t: string) => { if(!t) return 0; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        let d = getM(aEnd) - getM(bEnd);
+        if (d < 0) d += 24 * 60;
+        totalMins += d;
+      });
+      const totalEmps = assign.ot_assignment_employees?.length || 0;
+      const hoursStr = (totalMins / 60).toFixed(1).replace(/\.0$/, '');
+
+      await supabase.from('ot_assignments').delete().eq('id', assign.id);
+      
+      const userName = JSON.parse(localStorage.getItem('ot_user') || '{}').name || 'مستخدم';
+      const notifBody = `🗑️ بواسطة: ${userName}\nتم إلغاء تكليف بالكامل من النظام.\n\n📅 تاريخ التكليف الملغى: ${new Date(assign.date).toLocaleDateString('en-GB')}\n👥 عدد العمال المحذوفين: ${totalEmps} عامل\n⏱️ الساعات الملغاة: ${hoursStr} ساعة`;
+
+      await supabase.from('notifications').insert([{
+        title: '🚨 إلغاء تكليف',
+        body: notifBody,
+        department_id: assign.department_id
+      }]);
+      window.dispatchEvent(new Event('new_notification'));
+
       showToast('تم إلغاء التكليف بنجاح.', 'success');
       fetchPageData();
     } catch (error) {
@@ -401,11 +682,13 @@ export default function AssignmentsPage() {
 
     assignmentsToPrint.forEach(a => {
       a.ot_assignment_employees?.forEach((emp: any) => {
-        const shiftName = emp.employees?.shifts?.name || '';
+        const shiftName = emp.shift_snapshot || emp.employees?.shifts?.name || '';
         const isNight = shiftName.includes('ليل') || shiftName.includes('مسا');
         const isDay = !isNight;
         const basicEnd = isDay ? '16:00' : '04:00';
-        const actualEnd = (isDay ? a.day_end_time : a.night_end_time)?.substring(0, 5) || '';
+        
+        // 🔴 دمج الوقت المستقل في الطباعة
+        const actualEnd = emp.ot_end_time?.substring(0, 5) || (isDay ? a.day_end_time : a.night_end_time)?.substring(0, 5) || '';
 
         const getMins = (t: string) => {
           if (!t) return 0;
@@ -466,34 +749,18 @@ export default function AssignmentsPage() {
     preparePrintData(dailyAssignments, printDate, deptName);
   };
 
-  const isNightFilterActive = filterShift === '' || filterShift.includes('ليل') || filterShift.includes('مسا');
-  const isDayFilterActive = filterShift === '' || (!filterShift.includes('ليل') && !filterShift.includes('مسا'));
-
   return (
     <div className="flex flex-col space-y-6 relative pb-10">
 
-      {/* =====================================================
-          OFFICIAL PRINT FORM
-          ===================================================== */}
+      {/* PRINT FORM */}
       {viewAssignment && !viewAssignment.isViewOnly && (
           <div className="assignment-print" dir="rtl">
             <table className="assignment-header">
               <tbody>
                 <tr>
-                  <td className="header-company">
-                    <img src="/logo.png" alt="Logo" className="company-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                    <div className="company-ar">Energya Steel Solutions</div>
-                    <div className="company-dept">إدارة الموارد البشرية - شئون العاملين</div>
-                  </td>
-                  <td className="header-title">
-                    <div className="title-en">Overtime Approval</div>
-                    <div className="title-ar">نموذج تكليف عمل إضافي</div>
-                  </td>
-                  <td className="header-form">
-                    <div>Form No:</div>
-                    <div className="form-number">HHE-HR-FO-029</div>
-                    <div>Issue A/1</div>
-                  </td>
+                  <td className="header-company"><img src="/energyalogo.png" alt="Logo" className="company-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} /></td>
+                  <td className="header-title"><div className="title-en">Overtime Approval</div><div className="title-ar">نموذج تكليف عمل إضافي</div></td>
+                  <td className="header-form"><div>Form No:</div><div className="form-number">HHE-HR-FO-029</div><div>Issue A/1</div></td>
                 </tr>
               </tbody>
             </table>
@@ -501,32 +768,20 @@ export default function AssignmentsPage() {
             <table className="assignment-info">
               <tbody>
                 <tr>
-                  <td className="info-left">
-                    <span>Date</span><span dir="rtl">(التاريخ)</span> : <span className="info-value">{new Date(viewAssignment.date).toLocaleDateString('en-GB')}</span>
-                  </td>
-                  <td className="info-right">
-                    <span>Day</span><span dir="rtl">(اليوم)</span> : <span className="info-value">{new Date(viewAssignment.date).toLocaleDateString('ar-EG', { weekday: 'long' })}</span>
-                  </td>
+                  <td className="info-left"><span>Date</span><span dir="rtl">(التاريخ)</span> : <span className="info-value">{new Date(viewAssignment.date).toLocaleDateString('en-GB')}</span></td>
+                  <td className="info-right"><span>Day</span><span dir="rtl">(اليوم)</span> : <span className="info-value">{new Date(viewAssignment.date).toLocaleDateString('ar-EG', { weekday: 'long' })}</span></td>
                 </tr>
                 <tr>
-                  <td className="info-left">
-                    <span>Department</span><span dir="rtl">(الإدارة)</span> : <span className="info-value">{viewAssignment.departmentName || ''}</span>
-                  </td>
-                  <td className="info-right">
-                    <span>Section</span><span dir="rtl">(القسم)</span> : <span className="info-value">{viewAssignment.departmentName || ''}</span>
-                  </td>
+                  <td className="info-left"><span>Department</span><span dir="rtl">(الإدارة)</span> : <span className="info-value">{viewAssignment.departmentName || ''}</span></td>
+                  <td className="info-right"><span>Section</span><span dir="rtl">(القسم)</span> : <span className="info-value">{viewAssignment.departmentName || ''}</span></td>
                 </tr>
               </tbody>
             </table>
 
             <table className="assignment-table">
-              <colgroup>
-                <col className="col-no" /><col className="col-id" /><col className="col-name" /><col className="col-title" /><col className="col-time" /><col className="col-time" />
-              </colgroup>
+              <colgroup><col className="col-no" /><col className="col-id" /><col className="col-name" /><col className="col-title" /><col className="col-time" /><col className="col-time" /></colgroup>
               <thead>
-                <tr>
-                  <th>م</th><th><div>Emp. ID</div><div>رقم الوظيفي</div></th><th><div>Name</div><div>الإســــــم</div></th><th><div>Title</div><div>الوظيفة</div></th><th><div>From</div><div>من الساعة</div></th><th><div>To</div><div>إلى الساعة</div></th>
-                </tr>
+                <tr><th>م</th><th><div>Emp. ID</div><div>رقم الوظيفي</div></th><th><div>Name</div><div>الإســــــم</div></th><th><div>Title</div><div>الوظيفة</div></th><th><div>From</div><div>من الساعة</div></th><th><div>To</div><div>إلى الساعة</div></th></tr>
               </thead>
               <tbody>
                 {viewAssignment.employees?.map((empRecord: any, idx: number) => (
@@ -549,9 +804,7 @@ export default function AssignmentsPage() {
           </div>
         )}
 
-      {/* =====================================================
-          TOP FILTERS (NEW)
-          ===================================================== */}
+      {/* TOP FILTERS */}
       <div className="print:hidden bg-white p-5 rounded-xl shadow-sm border flex flex-col md:flex-row justify-between items-center gap-4">
         <h2 className="text-lg font-bold text-[var(--color-navy-900)] flex items-center gap-2"><Filter size={20} className="text-[var(--color-navy-500)]" /> فلتر عرض التكليفات</h2>
         <div className="flex flex-wrap items-center gap-4">
@@ -575,9 +828,7 @@ export default function AssignmentsPage() {
         </div>
       </div>
 
-      {/* =====================================================
-          DASHBOARD CARDS (SMART METRICS) - مخفية لمدخل البيانات
-          ===================================================== */}
+      {/* DASHBOARD CARDS */}
       {userRole !== 'DATA_ENTRY' && (
         <div className="print:hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-blue-500 transform transition hover:-translate-y-1">
@@ -615,19 +866,25 @@ export default function AssignmentsPage() {
           )}
 
           <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-rose-600 transform transition hover:-translate-y-1">
-            <p className="text-gray-500 text-sm font-bold mb-1">عامل شاذ (مراجعة الساعات)</p>
+            <p className="text-gray-500 text-sm font-bold mb-1">حالات استثنائية (مراجعة الساعات)</p>
             <div className="flex justify-between items-center mt-2">
-              <div>
-                <h3 className="text-lg font-black text-rose-600 truncate max-w-[140px]">{loading ? '...' : stats.topEmp.name}</h3>
-                <p className="text-xs font-bold text-gray-400 mt-1">مسجل {stats.topEmp.hours} ساعة</p>
+              <div className="flex-1 overflow-hidden pr-2">
+                <h3 className="text-lg font-black text-rose-600 truncate">
+                  {loading ? '...' : stats.topEmp.name}
+                </h3>
+                {stats.topEmp.hoursMsg && (
+                  <p className="text-[11px] font-bold text-gray-500 mt-1 truncate" title={stats.topEmp.hoursMsg}>
+                    {stats.topEmp.hoursMsg}
+                  </p>
+                )}
               </div>
-              <UserX size={28} className="text-rose-200" />
+              <UserX size={28} className="text-rose-200 flex-shrink-0" />
             </div>
           </div>
         </div>
       )}
 
-      {/* رسم بياني لمدير المصنع والأدمن */}
+      {/* CHART */}
       {(userRole === 'FACTORY_MANAGER' || userRole === 'ADMIN') && chartData.length > 0 && (
         <div className="print:hidden bg-white p-6 rounded-xl shadow-sm border mb-4">
           <h3 className="font-bold text-[var(--color-navy-900)] mb-4 border-b pb-2 flex items-center gap-2"><BarChart3 size={18} /> توزيع الساعات المطلوبة على الإدارات</h3>
@@ -649,9 +906,7 @@ export default function AssignmentsPage() {
         </div>
       )}
 
-      {/* =====================================================
-          MAIN SCREEN (FORM & TABLE)
-          ===================================================== */}
+      {/* MAIN SCREEN (FORM & TABLE) */}
       <div className="print:hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {userRole !== 'FACTORY_MANAGER' && (
@@ -659,7 +914,7 @@ export default function AssignmentsPage() {
             <div className={`p-4 border-b flex justify-between items-center font-semibold ${editingAssignmentId ? 'bg-orange-50 text-orange-900' : 'bg-gray-50 text-[var(--color-navy-900)]'}`}>
               <div className="flex items-center gap-2">
                 {editingAssignmentId ? <Edit size={18} /> : <Filter size={18} />}
-                {editingAssignmentId ? 'تعديل التكليف' : 'إنشاء تكليف مجمع'}
+                {editingAssignmentId ? 'تعديل التكليف' : 'إنشاء / إلحاق تكليف'}
               </div>
               {editingAssignmentId && (
                 <button onClick={cancelEditing} className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition">إلغاء التعديل</button>
@@ -712,22 +967,18 @@ export default function AssignmentsPage() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 mb-4">
-                    {(filterShift === '' || (!filterShift.includes('ليل') && !filterShift.includes('مسا'))) && (
-                      <div className="p-3 rounded-lg border bg-orange-50 border-orange-200 flex justify-between items-center">
-                        <label className="block text-xs font-bold text-orange-700">☀️ انصراف النهار</label>
-                        <div className="flex gap-1 dir-ltr">
-                          <select value={dayEndMinute} onChange={(e) => setDayEndMinute(e.target.value)} className="border border-orange-300 rounded p-1 text-sm outline-none text-center font-bold bg-white"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select><span className="self-center font-bold text-orange-500">:</span><select value={dayEndHour} onChange={(e) => setDayEndHour(e.target.value)} className="border border-orange-300 rounded p-1 text-sm outline-none text-center font-bold bg-white">{Array.from({ length: 24 }).map((_, i) => { const h = i.toString().padStart(2, '0'); return <option key={h} value={h}>{h}</option>; })}</select>
-                        </div>
+                    <div className="p-3 rounded-lg border bg-orange-50 border-orange-200 flex justify-between items-center">
+                      <label className="block text-xs font-bold text-orange-700">☀️ الوقت الافتراضي (نهار)</label>
+                      <div className="flex gap-1 dir-ltr">
+                        <select value={dayEndMinute} onChange={(e) => setDayEndMinute(e.target.value)} className="border border-orange-300 rounded p-1 text-sm outline-none text-center font-bold bg-white"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select><span className="self-center font-bold text-orange-500">:</span><select value={dayEndHour} onChange={(e) => setDayEndHour(e.target.value)} className="border border-orange-300 rounded p-1 text-sm outline-none text-center font-bold bg-white">{Array.from({ length: 24 }).map((_, i) => { const h = i.toString().padStart(2, '0'); return <option key={h} value={h}>{h}</option>; })}</select>
                       </div>
-                    )}
-                    {(filterShift === '' || filterShift.includes('ليل') || filterShift.includes('مسا')) && (
-                      <div className="p-3 rounded-lg border bg-indigo-50 border-indigo-200 flex justify-between items-center">
-                        <label className="block text-xs font-bold text-indigo-700">🌙 انصراف الليل</label>
-                        <div className="flex gap-1 dir-ltr">
-                          <select value={nightEndMinute} onChange={(e) => setNightEndMinute(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm outline-none text-center font-bold bg-white"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select><span className="self-center font-bold text-indigo-500">:</span><select value={nightEndHour} onChange={(e) => setNightEndHour(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm outline-none text-center font-bold bg-white">{Array.from({ length: 24 }).map((_, i) => { const h = i.toString().padStart(2, '0'); return <option key={h} value={h}>{h}</option>; })}</select>
-                        </div>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-indigo-50 border-indigo-200 flex justify-between items-center">
+                      <label className="block text-xs font-bold text-indigo-700">🌙 الوقت الافتراضي (ليل)</label>
+                      <div className="flex gap-1 dir-ltr">
+                        <select value={nightEndMinute} onChange={(e) => setNightEndMinute(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm outline-none text-center font-bold bg-white"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select><span className="self-center font-bold text-indigo-500">:</span><select value={nightEndHour} onChange={(e) => setNightEndHour(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm outline-none text-center font-bold bg-white">{Array.from({ length: 24 }).map((_, i) => { const h = i.toString().padStart(2, '0'); return <option key={h} value={h}>{h}</option>; })}</select>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   <div className="text-sm font-bold text-[var(--color-navy-900)] mb-3 flex items-center justify-between">
@@ -742,23 +993,38 @@ export default function AssignmentsPage() {
                     <input type="text" placeholder="بحث بالاسم أو الرقم..." value={searchEmp} onChange={(e) => setSearchEmp(e.target.value)} className="w-full border rounded-lg pl-3 pr-9 py-2 text-sm outline-none" />
                   </div>
 
-                  <div className="flex-1 max-h-56 overflow-y-auto border rounded-lg bg-gray-50 p-2 space-y-1">
+                  <div className="flex-1 max-h-[300px] overflow-y-auto border rounded-lg bg-gray-50 p-2 space-y-1">
                     {displayedEmployees.length === 0 ? (
                       <div className="text-center text-sm text-gray-500 py-4">لا يوجد موظفين.</div>
                     ) : (
                       displayedEmployees.map(emp => (
-                        <label key={emp.emp_number} className="flex items-center gap-3 p-2 bg-white hover:bg-blue-50 rounded border cursor-pointer transition shadow-sm">
-                          <input type="checkbox" className="w-4 h-4 accent-[var(--color-navy-500)]" checked={selectedEmpNumbers.includes(emp.emp_number)} onChange={() => handleSelectEmp(emp.emp_number)} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-center mb-1">
-                              <p className="text-xs font-bold text-gray-800 truncate">{emp.name}</p>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${emp.shifts?.name?.includes('نهار') || emp.shifts?.name?.includes('صباح') ? 'bg-orange-100 text-orange-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                                {emp.shifts?.name || '-'}
-                              </span>
+                        <div key={emp.emp_number} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-white hover:bg-blue-50 rounded border transition shadow-sm">
+                          <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
+                            <input type="checkbox" className="w-4 h-4 accent-[var(--color-navy-500)]" checked={selectedEmpNumbers.includes(emp.emp_number)} onChange={() => handleSelectEmp(emp.emp_number, emp.shifts?.name || '')} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-center mb-1">
+                                <p className="text-xs font-bold text-gray-800 truncate">{emp.name}</p>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${emp.shifts?.name?.includes('نهار') || emp.shifts?.name?.includes('صباح') ? 'bg-orange-100 text-orange-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                  {emp.shifts?.name || '-'}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-500 truncate">{emp.job_title}</p>
                             </div>
-                            <p className="text-[10px] text-gray-500 truncate">{emp.job_title}</p>
-                          </div>
-                        </label>
+                          </label>
+                          {/* 🔴 NEW: وقت الانصراف الفردي */}
+                          {selectedEmpNumbers.includes(emp.emp_number) && (
+                            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-md ml-7 sm:ml-0" onClick={e => e.stopPropagation()}>
+                              <Clock size={12} className="text-gray-500" />
+                              <input 
+                                type="time" 
+                                value={empTimes[emp.emp_number] || ''} 
+                                onChange={(e) => setEmpTimes(prev => ({...prev, [emp.emp_number]: e.target.value}))}
+                                className="bg-transparent border-none text-xs font-bold text-gray-700 outline-none w-20 text-center cursor-text"
+                                required
+                              />
+                            </div>
+                          )}
+                        </div>
                       ))
                     )}
                   </div>
@@ -809,16 +1075,15 @@ export default function AssignmentsPage() {
                     </th>
                   )}
                   <th className="p-3 font-semibold whitespace-nowrap">التاريخ والقسم</th>
-                  <th className="p-3 font-semibold text-center w-24">الانصراف الفعلي</th>
-                  <th className="p-3 font-semibold w-1/2">الموظفين المكلفين</th>
+                  <th className="p-3 font-semibold w-2/3">الموظفين المكلفين وأوقات الانصراف</th>
                   <th className="p-3 font-semibold text-center w-28">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={userRole === 'FACTORY_MANAGER' ? 4 : 5} className="p-8 text-center text-gray-500 font-bold">جاري التحميل...</td></tr>
+                  <tr><td colSpan={userRole === 'FACTORY_MANAGER' ? 3 : 4} className="p-8 text-center text-gray-500 font-bold">جاري التحميل...</td></tr>
                 ) : displayedAssignments.length === 0 ? (
-                  <tr><td colSpan={userRole === 'FACTORY_MANAGER' ? 4 : 5} className="p-8 text-center text-gray-500 font-bold">لا يوجد تكليفات مسجلة في هذه الفترة.</td></tr>
+                  <tr><td colSpan={userRole === 'FACTORY_MANAGER' ? 3 : 4} className="p-8 text-center text-gray-500 font-bold">لا يوجد تكليفات مسجلة في هذه الفترة.</td></tr>
                 ) : (
                   displayedAssignments.map(assign => {
                     const isEditableByDataEntry = userRole === 'DATA_ENTRY' ? assign.date >= todayStr : true;
@@ -839,23 +1104,19 @@ export default function AssignmentsPage() {
                           </div>
                           <div className="text-xs text-blue-600 font-bold mt-1">{(assign as any).departments?.name}</div>
                         </td>
-                        <td className="p-3 text-center align-top pt-4">
-                          <div className="flex flex-col gap-1 items-center">
-                            <span className="text-[11px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-100 w-full text-center">
-                              ☀️ {assign.day_end_time?.substring(0, 5)}
-                            </span>
-                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 w-full text-center">
-                              🌙 {assign.night_end_time?.substring(0, 5)}
-                            </span>
-                          </div>
-                        </td>
                         <td className="p-3">
                           <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-                            {(assign as any).ot_assignment_employees?.map((emp: any, i: number) => (
-                              <span key={i} className="bg-white border text-gray-700 text-[10px] font-bold px-2 py-1 rounded shadow-sm">
-                                {emp.employees?.name}
-                              </span>
-                            ))}
+                            {/* 🔴 تم تعديل عرض الموظفين لإظهار أوقاتهم بجوار أسمائهم */}
+                            {(assign as any).ot_assignment_employees?.map((emp: any, i: number) => {
+                              const sName = emp.shift_snapshot || emp.employees?.shifts?.name || '';
+                              const isNight = sName.includes('ليل');
+                              const endTime = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
+                              return (
+                                <span key={i} className="bg-white border text-gray-700 text-[10px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1">
+                                  {emp.employees?.name} <span className={isNight ? 'text-indigo-600' : 'text-orange-600'}>({endTime})</span>
+                                </span>
+                              );
+                            })}
                           </div>
                         </td>
                         <td className="p-3 text-center align-top pt-4">
@@ -869,7 +1130,7 @@ export default function AssignmentsPage() {
                               <Eye size={16} />
                             </button>
                             {canEditDelete && (
-                              <button onClick={() => handleDeleteAssignment(assign.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition" title="إلغاء التكليف">
+                              <button onClick={() => handleDeleteAssignment(assign)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition" title="إلغاء التكليف">
                                 <Trash2 size={16} />
                               </button>
                             )}
@@ -885,9 +1146,7 @@ export default function AssignmentsPage() {
         </div>
       </div>
 
-      {/* =====================================================
-          PREVIEW MODAL
-          ===================================================== */}
+      {/* PREVIEW MODAL */}
       {viewAssignment && viewAssignment.isViewOnly && (
         <div className="print:hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
@@ -902,16 +1161,23 @@ export default function AssignmentsPage() {
                     <th className="p-2 border-b">الرقم</th>
                     <th className="p-2 border-b">الاسم</th>
                     <th className="p-2 border-b">الوظيفة</th>
+                    <th className="p-2 border-b">وقت النهاية</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {viewAssignment.ot_assignment_employees?.map((emp: any, i: number) => (
-                    <tr key={i} className="border-b">
-                      <td className="p-2">{emp.emp_number}</td>
-                      <td className="p-2 font-bold">{emp.employees?.name}</td>
-                      <td className="p-2 text-xs">{emp.employees?.job_title}</td>
-                    </tr>
-                  ))}
+                  {viewAssignment.ot_assignment_employees?.map((emp: any, i: number) => {
+                    const sName = emp.shift_snapshot || emp.employees?.shifts?.name || '';
+                    const isNight = sName.includes('ليل');
+                    const endTime = emp.ot_end_time?.substring(0, 5) || (isNight ? viewAssignment.night_end_time : viewAssignment.day_end_time)?.substring(0, 5) || '';
+                    return (
+                      <tr key={i} className="border-b">
+                        <td className="p-2">{emp.emp_number}</td>
+                        <td className="p-2 font-bold">{emp.employees?.name}</td>
+                        <td className="p-2 text-xs">{emp.employees?.job_title}</td>
+                        <td className="p-2 text-xs font-bold" dir="ltr">{endTime}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -919,9 +1185,7 @@ export default function AssignmentsPage() {
         </div>
       )}
 
-      {/* =====================================================
-          PRINT CSS
-          ===================================================== */}
+      {/* PRINT CSS */}
       <style jsx global>{`
         @page { size: A4 portrait; margin: 0; }
         .assignment-print { display: none; }

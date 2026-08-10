@@ -30,8 +30,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ar" dir="rtl">
-      <body className={`${cairo.className} bg-[var(--color-neutral-100)] flex flex-col min-h-screen text-[var(--color-navy-900)]`}>
-        {/* النافبار */}
+<body suppressHydrationWarning className={`${cairo.className} bg-[var(--color-neutral-100)] flex flex-col min-h-screen text-[var(--color-navy-900)]`}>        {/* النافبار */}
         <Navbar />
         
         {/* مشغل التطبيق */}

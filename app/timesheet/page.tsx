@@ -1,24 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
 import { CheckCircle2, AlertCircle, FileSpreadsheet, Building2, Download, CheckSquare } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function TimesheetPage() {
+// مكون فرعي للتعامل مع الـ Search Params بداخل Suspense (مطلوب في Next.js 13+)
+function TimesheetContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userDeptId, setUserDeptId] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>('');
 
   const [companies, setCompanies] = useState<any[]>([]);
-  const [filterCompany, setFilterCompany] = useState<string>('');
   
-  const [genMonth, setGenMonth] = useState<number>(new Date().getMonth() + 1);
-  const [genYear, setGenYear] = useState<number>(new Date().getFullYear());
+  // التقاط القيم من الإشعار (الـ URL) إن وجدت
+  const paramCompany = searchParams.get('company') || '';
+  const paramMonth = searchParams.get('month') ? parseInt(searchParams.get('month') as string) : new Date().getMonth() + 1;
+  const paramYear = searchParams.get('year') ? parseInt(searchParams.get('year') as string) : new Date().getFullYear();
 
-  const [loading, setLoading] = useState(false);
+  const [filterCompany, setFilterCompany] = useState<string>(paramCompany);
+  const [genMonth, setGenMonth] = useState<number>(paramMonth);
+  const [genYear, setGenYear] = useState<number>(paramYear);
+
   const [isExporting, setIsExporting] = useState(false);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
@@ -27,6 +34,8 @@ export default function TimesheetPage() {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
   };
 
+  const monthsAr = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+
   useEffect(() => {
     document.title = 'توليد التايم شيت النهائي | OT Audit';
     const userStr = localStorage.getItem('ot_user');
@@ -34,6 +43,7 @@ export default function TimesheetPage() {
     
     const user = JSON.parse(userStr);
     setUserRole(user.role);
+    setUserName(user.name);
 
     async function initUser() {
       const { data } = await supabase.from('users').select('department_id').eq('id', user.id).single();
@@ -50,13 +60,14 @@ export default function TimesheetPage() {
     setIsExporting(true);
 
     try {
+      // 1. جلب البيانات مع الحقول الإضافية المطلوبة للـ Templates
       let query = supabase.from('ot_calculations')
-        .select(`emp_number, final_approved_hours, employees!inner(name, department_id, companies(name))`)
+        .select(`emp_number, date, final_approved_hours, employees!inner(name, job_title, iqama_number, department_id, departments(name), companies(name))`)
         .eq('month', genMonth)
         .eq('year', genYear)
         .eq('employees.companies.name', filterCompany)
-        .in('status', ['MATCHED', 'RESOLVED']) // يعتمد السليم والمحلول فقط
-        .gt('final_approved_hours', 0); // اللي ليه ساعات بس
+        .in('status', ['MATCHED', 'RESOLVED'])
+        .gt('final_approved_hours', 0);
 
       if (userRole === 'MANAGER' && userDeptId) {
         query = query.eq('employees.department_id', userDeptId);
@@ -70,30 +81,147 @@ export default function TimesheetPage() {
         setIsExporting(false); return;
       }
 
-      // تجميع الساعات لكل موظف خلال الشهر (تم إضافة any لتخطي خطأ Typescript)
-      const empSummary = new Map();
+      // 2. حساب عدد أيام الشهر وأيام الجمعة (Dynamic Calendar)
+      const daysInMonth = new Date(genYear, genMonth, 0).getDate();
+      const fridays: number[] = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        if (new Date(genYear, genMonth - 1, d).getDay() === 5) {
+          fridays.push(d);
+        }
+      }
+
+      // 3. بناء الـ Pivot لكل موظف
+      const empMap = new Map();
       data.forEach((record: any) => {
          const empNum = record.emp_number;
-         if(!empSummary.has(empNum)) {
-             // تحديد إننا بناخد الاسم سواء كان كائن أو مصفوفة
-             const empName = Array.isArray(record.employees) ? record.employees[0]?.name : record.employees?.name;
-             empSummary.set(empNum, {
-                 'الرقم الوظيفي': empNum,
-                 'اسم الموظف': empName || 'غير معروف',
-                 'إجمالي ساعات الأوفر تايم': 0
+         const dayOfMonth = new Date(record.date).getDate();
+         
+         if(!empMap.has(empNum)) {
+             const empInfo = Array.isArray(record.employees) ? record.employees[0] : record.employees;
+             empMap.set(empNum, {
+                 empNumber: empNum,
+                 name: empInfo?.name || 'غير معروف',
+                 iqama: empInfo?.iqama_number || '-',
+                 jobTitle: empInfo?.job_title || '-',
+                 workshop: empInfo?.departments?.name || '-',
+                 company: empInfo?.companies?.name || '-',
+                 days: {},
+                 totalHours: 0
              });
          }
-         empSummary.get(empNum)['إجمالي ساعات الأوفر تايم'] += record.final_approved_hours;
+         
+         const empData = empMap.get(empNum);
+         empData.days[dayOfMonth] = (empData.days[dayOfMonth] || 0) + record.final_approved_hours;
+         empData.totalHours += record.final_approved_hours;
       });
 
-      const exportData = Array.from(empSummary.values());
+      // 4. تحديد ترتيب الأعمدة بناءً على نوع الشركة
+      const exportDataAOA: any[][] = []; // Array of Arrays for precise Excel control
+      let headers: any[] = [];
+      let baseColsCount = 0;
 
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "التايم شيت");
+      if (filterCompany === 'Jawhara') {
+        headers = ['م', 'رقم الموظف', 'الاسم', 'رقم الإقامة', 'المسمى الوظيفي', 'الورشة'];
+        baseColsCount = headers.length;
+      } else if (filterCompany === 'Contractor') {
+        headers = ['م', 'الاسم', 'الإقامة', 'المؤسسة', 'الرقم الوظيفي', 'الوظيفة'];
+        baseColsCount = headers.length;
+      } else {
+        // Energia Template
+        headers = ['م', 'الاسم', 'رقم الموظف'];
+        baseColsCount = headers.length;
+      }
+
+      // إضافة أعمدة الأيام
+      for (let i = 1; i <= daysInMonth; i++) headers.push(i);
+      // إضافة عمود المجموع
+      const totalColName = filterCompany === 'Energia' ? 'TOTAL' : 'الإجمالي';
+      headers.push(totalColName);
       
-      const fileName = `Timesheet_${filterCompany}_${genMonth}_${genYear}.xlsx`;
+      exportDataAOA.push(headers);
+
+      // 5. تعبئة بيانات الموظفين
+      const sortedEmps = Array.from(empMap.values()).sort((a: any, b: any) => a.empNumber.localeCompare(b.empNumber));
+      
+      sortedEmps.forEach((emp: any, index: number) => {
+        let row: any[] = [];
+        
+        if (filterCompany === 'Jawhara') {
+          row = [index + 1, emp.empNumber, emp.name, emp.iqama, emp.jobTitle, emp.workshop];
+        } else if (filterCompany === 'Contractor') {
+          row = [index + 1, emp.name, emp.iqama, emp.company, emp.empNumber, emp.jobTitle];
+        } else {
+          // Energia
+          row = [index + 1, emp.name, emp.empNumber];
+        }
+
+        for (let d = 1; d <= daysInMonth; d++) {
+          row.push(emp.days[d] || ''); // فارغ إذا لم يعمل في هذا اليوم
+        }
+        row.push(emp.totalHours);
+        
+        exportDataAOA.push(row);
+      });
+
+      // 6. إنشاء ملف الإكسل والتنسيق
+      const ws = XLSX.utils.aoa_to_sheet(exportDataAOA);
+      
+      // تنسيقات الـ Sheet (RTL و تجميد الهيدر)
+      ws['!dir'] = 'rtl';
+      ws['!freeze'] = { ySplit: 1 }; // تجميد الصف الأول
+      
+      // ضبط عرض الأعمدة التقريبي
+      ws['!cols'] = Array(headers.length).fill({ wch: 6 }); // الأيام والميم
+      ws['!cols'][1] = { wch: 25 }; // عرض خانة الاسم غالباً في الاندكس 1 أو 2
+      ws['!cols'][2] = { wch: 20 };
+
+      // تلوين أيام الجمعة (سيعمل في المكتبات الداعمة للستايلز)
+      for (let R = 0; R < exportDataAOA.length; R++) {
+        for (let d = 1; d <= daysInMonth; d++) {
+          if (fridays.includes(d)) {
+            const colIndex = baseColsCount + d - 1;
+            const cellRef = XLSX.utils.encode_cell({ r: R, c: colIndex });
+            if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' }; // حماية للخلايا الفارغة
+            ws[cellRef].s = { 
+              fill: { fgColor: { rgb: "FFFFFF00" } }, // أصفر
+              font: { bold: R === 0 }
+            };
+          }
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Timesheet");
+      
+      const fileName = `${filterCompany}_Timesheet_${genYear}_${genMonth.toString().padStart(2, '0')}.xlsx`;
       XLSX.writeFile(wb, fileName);
+
+      // 7. إدارة الإشعارات (منع التكرار والتوجيه الذكي)
+      const notifTitle = 'تم إصدار تايم شيت جديد';
+      const notifBody = `تم إصدار التايم شيت النهائي لشركة ${filterCompany} عن شهر ${monthsAr[genMonth - 1]} ${genYear}.\nبواسطة: ${userName}`;
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      // التحقق من عدم التكرار اليوم لنفس التايم شيت
+      const { data: existingNotif } = await supabase
+        .from('notifications')
+        .select('id')
+        .eq('title', notifTitle)
+        .eq('body', notifBody)
+        .gte('created_at', todayStart.toISOString())
+        .maybeSingle();
+
+      if (!existingNotif) {
+        // حفظ الإشعار برابط ديناميكي (يتم قراءته من قبل صفحة الإشعارات)
+        // أضفنا meta_data للـ URL لو حبيت تستخدمها، أو يمكن لصفحة الإشعارات استنتاجها
+        await supabase.from('notifications').insert([{
+          title: notifTitle,
+          body: notifBody,
+          department_id: userRole === 'MANAGER' ? userDeptId : null
+        }]);
+        window.dispatchEvent(new Event('new_notification'));
+      }
 
       showToast(`تم تحميل التايم شيت النهائي لشركة ${filterCompany} بنجاح.`, 'success');
 
@@ -103,7 +231,7 @@ export default function TimesheetPage() {
   };
 
   return (
-    <div className="flex flex-col space-y-6 relative pb-10">
+    <div className="flex flex-col space-y-6 relative pb-10 animate-in fade-in">
       {toast.show && (
         <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 flex items-center gap-3 px-6 py-3 rounded-lg shadow-xl z-50 transition-all duration-300 ${toast.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
           {toast.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
@@ -131,7 +259,7 @@ export default function TimesheetPage() {
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><CheckSquare size={16}/> الشهر</label>
             <select value={genMonth} onChange={(e) => setGenMonth(parseInt(e.target.value))} className="w-full border border-gray-300 rounded-lg p-3 outline-none font-bold text-gray-800 shadow-sm focus:ring-2 focus:ring-blue-500">
-              {Array.from({length: 12}).map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
+              {Array.from({length: 12}).map((_, i) => <option key={i+1} value={i+1}>{monthsAr[i]}</option>)}
             </select>
           </div>
           <div>
@@ -149,11 +277,20 @@ export default function TimesheetPage() {
             className="flex items-center gap-3 bg-green-600 text-white px-8 py-4 rounded-xl hover:bg-green-700 transition disabled:opacity-50 font-black shadow-lg text-lg"
           >
             <Download size={24} />
-            <span>{isExporting ? 'جاري تجهيز الملف...' : 'تحميل الإكسل النهائي للشركة'}</span>
+            <span>{isExporting ? 'جاري التجهيز...' : 'إصدار ملف الـ Timesheet'}</span>
           </button>
         </div>
         {userRole === 'DATA_ENTRY' && <p className="text-red-500 text-sm font-bold mt-4 text-left">غير مصرح لمدخل البيانات باستخراج التايم شيت النهائي.</p>}
       </div>
     </div>
+  );
+}
+
+// التغليف بـ Suspense لضمان عمل useSearchParams بدون أخطاء في الـ Build
+export default function TimesheetPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-10 text-center font-bold text-gray-500">جاري تحميل لوحة الإصدار...</div>}>
+      <TimesheetContent />
+    </Suspense>
   );
 }
