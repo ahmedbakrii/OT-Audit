@@ -55,8 +55,6 @@ export default function EmployeesPage() {
     if (!userStr) { router.push('/login'); return; }
     
     const user = JSON.parse(userStr);
-    if (user.role === 'DATA_ENTRY') { router.push('/assignments'); return; }
-    
     setUserRole(user.role);
 
     async function initUser() {

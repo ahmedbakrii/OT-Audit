@@ -34,14 +34,12 @@ export default function LoginPage() {
       if (user.password !== password) throw new Error('كلمة المرور غير صحيحة.');
 
       const sessionData = { id: user.id, name: user.name, role: user.role, userName: user.user_name };
+      
+      // 🔴 الحل هنا: نحفظ الداتا الأول، وبعدين نبعت الإشارة للنافبار
       localStorage.setItem('ot_user', JSON.stringify(sessionData));
-
-      // لو مدخل بيانات يروح لصفحة التكليفات فوراً
-      if (user.role === 'DATA_ENTRY') {
-        router.push('/assignments'); 
-      } else {
-        router.push('/'); 
-      }
+      window.dispatchEvent(new Event('user_login_changed'));
+// 🔴 توجيه الجميع للرئيسية عشان مدخل البيانات يشوف شاشة الحماية ويحترم نفسه 😎
+      router.push('/');
 
     } catch (err: any) {
       setError(err.message || 'حدث خطأ في تسجيل الدخول.');

@@ -34,8 +34,6 @@ export default function NotificationsPage() {
     if (!userStr) { router.push('/login'); return; }
 
     const user = JSON.parse(userStr);
-    if (user.role === 'DATA_ENTRY') { router.push('/assignments'); return; }
-
     setUserRole(user.role);
     async function init() {
       const { data } = await supabase.from('users').select('department_id').eq('id', user.id).single();
