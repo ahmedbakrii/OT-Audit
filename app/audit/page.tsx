@@ -33,7 +33,7 @@ function AuditContent() {
   };
 
   useEffect(() => {
-    document.title = 'إدارة التعارضات | STAFFCORE';
+    document.title = 'التدقيق  | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     
@@ -131,7 +131,7 @@ function AuditContent() {
           if (resolvedSet.has(`${emp.emp_number}_${assign.date}`)) return;
 
           const shift = emp.shift_snapshot || emp.employees?.shifts?.name || '';
-          const isNight = shift.includes('ليل') || shift.includes('مسا');
+          const isNight = shift.includes('ليل') || shift.includes('مسائي');
           const basicEndStr = isNight ? '04:00' : '16:00';
           
           const assignEndStr = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
@@ -204,7 +204,7 @@ function AuditContent() {
           approvedHours = record.timesheet_hours;
         } else {
           const shift = record.employees?.shifts?.name || '';
-          const isNight = shift.includes('ليل') || shift.includes('مسا');
+          const isNight = shift.includes('ليل') || shift.includes('مسائي');
           const basicEndStr = isNight ? '04:00' : '16:00';
           if (record.attendance_out) {
              const actualOutStr = new Date(record.attendance_out).toISOString().substring(11, 16);
@@ -258,7 +258,7 @@ function AuditContent() {
         <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-[var(--color-navy-500)] flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[var(--color-navy-900)]">لوحة إدارة التعارضات والمطابقة</h1>
-            <p className="text-gray-500 text-sm mt-1">يتم جلب التعارضات بين البصمة والتكليفات بشكل <span className="font-bold text-green-600">تلقائي وفوري</span>.</p>
+            <p className="text-gray-500 text-sm mt-1">يتم جلب التعارضات بين البصمة والتكاليف بشكل <span className="font-bold text-green-600">تلقائي وفوري</span>.</p>
           </div>
           <div className="flex items-center gap-4 bg-gray-50 p-2 rounded-lg border shadow-inner">
             <div className="flex items-center gap-2">

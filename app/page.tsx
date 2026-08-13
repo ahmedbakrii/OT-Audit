@@ -123,7 +123,7 @@ export default function Home() {
             totalAssignedEmps++; 
 
             const shift = emp.shift_snapshot || emp.employees?.shifts?.name || '';
-            const isNight = shift.includes('ليل') || shift.includes('مسا');
+            const isNight = shift.includes('ليل') || shift.includes('مسائي');
             const basicEnd = isNight ? '04:00' : '16:00';
             
             const actualEnd = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
@@ -224,7 +224,7 @@ export default function Home() {
   else if (selectedDeptFilter) displayDeptName = departments.find(d => d.id === selectedDeptFilter)?.name || '';
 
   const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'صباح الخير ☀️' : currentHour < 18 ? 'طاب مساؤك 🌤️' : 'مساء الخير 🌙';
+  const greeting = currentHour < 12 ? 'صباح الخير ☀️' : currentHour < 18 ? 'طاب مسائيؤك 🌤️' : 'مسائيء الخير 🌙';
 
   return (
     <div className="relative w-full min-h-screen">
@@ -243,7 +243,7 @@ export default function Home() {
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in zoom-in duration-200">
               <div className="flex justify-between items-center p-6 border-b bg-gray-50 rounded-t-xl">
                 <div>
-                  <h2 className="text-xl font-bold flex items-center gap-2 text-[var(--color-navy-900)]"><Timer size={22} className="text-orange-500" /> ساعات التكليفات المطلوبة</h2>
+                  <h2 className="text-xl font-bold flex items-center gap-2 text-[var(--color-navy-900)]"><Timer size={22} className="text-orange-500" /> ساعات التكاليف المطلوبة</h2>
                   <p className="text-sm text-gray-500 font-semibold mt-1">إجمالي ما تم تكليف كل موظف به خلال الفترة المحددة</p>
                 </div>
                 <button onClick={() => setShowHoursModal(false)} className="text-gray-400 hover:bg-gray-200 p-2 rounded-full transition"><X size={20} /></button>
@@ -286,7 +286,7 @@ export default function Home() {
           <div className="relative z-10">
             <h1 className="text-3xl font-bold mb-2">{greeting} يا {userName.split(' ')[0]}</h1>
             <p className="text-blue-100 text-lg max-w-2xl leading-relaxed">
-              لوحة تحكم تفاعلية توفر لك رؤية عميقة لحالة التكليفات والمطابقة مع البصمة الخاصة بـ <strong className="text-white bg-blue-800/50 px-2 py-0.5 rounded">{displayDeptName}</strong>.
+              لوحة تحكم تفاعلية توفر لك رؤية عميقة لحالة التكاليف والمطابقة مع البصمة الخاصة بـ <strong className="text-white bg-blue-800/50 px-2 py-0.5 rounded">{displayDeptName}</strong>.
             </p>
           </div>
           <div className="absolute left-0 top-0 opacity-10 transform -translate-x-1/4 -translate-y-1/4"><TrendingUp size={200} /></div>
@@ -305,7 +305,7 @@ export default function Home() {
             </Link>
             <Link href="/assignments" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-purple-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
               <div className="bg-purple-50 p-4 rounded-full text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition transform group-hover:scale-110"><ClipboardList size={28} /></div>
-              <span className="font-bold text-gray-700 group-hover:text-purple-700">التكليفات المسبقة</span>
+              <span className="font-bold text-gray-700 group-hover:text-purple-700">التكاليف المسبقة</span>
             </Link>
             <Link href="/timesheet" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-orange-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
               <div className="bg-orange-50 p-4 rounded-full text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition transform group-hover:scale-110"><FileClock size={28} /></div>

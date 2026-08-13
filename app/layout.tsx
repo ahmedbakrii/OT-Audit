@@ -8,8 +8,12 @@ import PWAInit from '@/components/PWAInit'
 const cairo = Cairo({ subsets: ['arabic'] })
 
 export const metadata: Metadata = {
-  title: 'STAFFCORE System', // خليناها كابيتال لتبدو أفخم
-  description: 'النظام المركزي لإدارة العمليات، شؤون الموظفين، والمطابقة الذكية', // وصف شامل
+  // استخدام القالب الذكي لأسماء التابات
+  title: {
+    default: 'STAFFCORE', // الاسم الافتراضي
+    template: '%s', // الـ Next.js هيسمح للصفحات تغير الاسم براحتها
+  },
+  description: 'النظام المركزي لإدارة العمليات، شؤون الموظفين، والمطابقة الذكية',
   manifest: '/manifest.json',
   
   // اللمسة السحرية لأجهزة الآيفون والآيباد
@@ -30,7 +34,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ar" dir="rtl">
-<body suppressHydrationWarning className={`${cairo.className} bg-[var(--color-neutral-100)] flex flex-col min-h-screen text-[var(--color-navy-900)]`}>        {/* النافبار */}
+      <body suppressHydrationWarning className={`${cairo.className} bg-[var(--color-neutral-100)] flex flex-col min-h-screen text-[var(--color-navy-900)]`}>
+        {/* النافبار */}
         <Navbar />
         
         {/* مشغل التطبيق */}

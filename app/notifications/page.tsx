@@ -129,7 +129,7 @@ export default function NotificationsPage() {
       return;
     }
 
-    // 🔴 3. التوجيه الافتراضي لباقي إشعارات التكليفات
+    // 🔴 3. التوجيه الافتراضي لباقي إشعارات التكاليف
     router.push('/assignments');
   };
 

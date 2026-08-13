@@ -41,7 +41,7 @@ export default function ForbiddenOverlay({ userDeptId }: { userDeptId: string | 
   return (
     // 🔴 تم تعديل هذا الغلاف بالكامل ليكون مناسباً ولا يغطي النافبار
     // استخدمنا absolute ليكون فوق المحتوى המموَّه (Blurred)، مع top-0 left-0 right-0
-    // والـ min-h-[calc(100vh-140px)] تضمن أنه يأخذ مساحة الشاشة المتبقية بين النافبار والفوتر فقط
+    // والـ min-h-[calc(100vh-140px)] تضمن أنه يأخذ مسائيحة الشاشة المتبقية بين النافبار والفوتر فقط
     <div className="absolute top-0 left-0 right-0 z-40 flex items-center justify-center min-h-[calc(100vh-140px)] bg-transparent p-4 animate-in fade-in duration-500">
       
       <div className="bg-white/95 backdrop-blur-md p-6 md:p-8 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] flex flex-col items-center text-center border-t-8 border-rose-600 max-w-xl w-full">
@@ -74,13 +74,13 @@ export default function ForbiddenOverlay({ userDeptId }: { userDeptId: string | 
           <p className="text-xs md:text-sm font-bold text-gray-500 mb-3 text-center">المهام المصرح لك بتنفيذها حالياً:</p>
           <div className="grid grid-cols-2 gap-2 md:gap-3">
             <button onClick={() => router.push('/assignments')} className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-700 border p-2.5 rounded-lg transition font-bold text-gray-700 text-xs md:text-sm group">
-              <ClipboardList size={16} className="text-purple-500 group-hover:scale-110 transition-transform" /> التكليفات
+              <ClipboardList size={16} className="text-purple-500 group-hover:scale-110 transition-transform" /> التكاليف
             </button>
             <button onClick={() => router.push('/attendance')} className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 border p-2.5 rounded-lg transition font-bold text-gray-700 text-xs md:text-sm group">
               <Fingerprint size={16} className="text-indigo-500 group-hover:scale-110 transition-transform" /> البصمة
             </button>
             <button onClick={() => router.push('/leaves')} className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-orange-50 hover:border-orange-200 hover:text-orange-700 border p-2.5 rounded-lg transition font-bold text-gray-700 text-xs md:text-sm group">
-              <CalendarDays size={16} className="text-orange-500 group-hover:scale-110 transition-transform" /> الإجازات
+              <CalendarDays size={16} className="text-orange-500 group-hover:scale-110 transition-transform" /> الأجازات
             </button>
             <button onClick={() => router.push('/permissions')} className="flex items-center justify-center gap-2 bg-gray-50 hover:bg-teal-50 hover:border-teal-200 hover:text-teal-700 border p-2.5 rounded-lg transition font-bold text-gray-700 text-xs md:text-sm group">
               <FileCheck2 size={16} className="text-teal-500 group-hover:scale-110 transition-transform" /> الأذونات

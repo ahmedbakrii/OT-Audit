@@ -117,7 +117,7 @@ export default function PermissionsPage() {
   };
 
   useEffect(() => {
-    document.title = 'إدارة الأذونات | STAFFCORE';
+    document.title = ' الأذونات | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     
@@ -228,7 +228,7 @@ export default function PermissionsPage() {
     }
   }, [permData.timeOfExit, permData.timeOfEntry, selectedEmpId, employees]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+ const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmpId || !permData.date || !permData.timeOfExit || !permData.timeOfEntry) {
       return showToast('برجاء استكمال تواريخ وأوقات الخروج والدخول', 'error');
@@ -239,7 +239,6 @@ export default function PermissionsPage() {
 
     setSubmitting(true);
     const emp = employees.find(e => e.id === selectedEmpId);
-    
     const finalReason = permData.reasonType === 'أخرى' ? permData.customReason : permData.reasonType;
 
     try {
@@ -251,7 +250,7 @@ export default function PermissionsPage() {
         time_of_entry: permData.timeOfEntry,
         period_of_exit: permData.calculatedDuration,
         reason: finalReason,
-        special_circumstances: null, // تم إلغاؤه من واجهة المستخدم
+        special_circumstances: null, 
         status: 'PENDING',
         created_by: userId
       };
@@ -264,6 +263,15 @@ export default function PermissionsPage() {
         const { error } = await supabase.from('permission_requests').insert(payload);
         if (error) throw error;
         showToast('تم إرسال إذن الخروج للاعتماد', 'success');
+
+        // 🔴 إرسال الإشعار الذكي
+        await supabase.from('notifications').insert([{
+          title: '🔔 تصريح خروج/تأخير للمراجعة',
+          body: `طلب تصريح خروج للموظف ${emp.name} بتاريخ ${permData.date}`,
+          department_id: emp.department_id,
+          target_url: '/approvals'
+        }]);
+        window.dispatchEvent(new Event('new_notification'));
       }
 
       resetForm();

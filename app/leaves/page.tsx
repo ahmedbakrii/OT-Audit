@@ -119,7 +119,7 @@ export default function LeavesPage() {
 
   // 1. تهيئة بيانات المستخدم
   useEffect(() => {
-    document.title = 'إدارة الإجازات | STAFFCORE';
+    document.title = ' الأجازات | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     
@@ -217,7 +217,7 @@ export default function LeavesPage() {
   // ==========================================
   // العمليات (حفظ، تعديل، إلغاء، طباعة)
   // ==========================================
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmpId || !leaveData.startDate || !leaveData.endDate) return showToast('برجاء استكمال البيانات', 'error');
     if (new Date(leaveData.startDate) > new Date(leaveData.endDate)) return showToast('تاريخ البداية لا يمكن أن يكون بعد النهاية', 'error');
@@ -246,10 +246,18 @@ export default function LeavesPage() {
         const { error } = await supabase.from('leave_requests').insert(payload);
         if (error) throw error;
         showToast('تم إرسال الطلب للاعتماد', 'success');
+
+        // 🔴 إرسال الإشعار الذكي
+        await supabase.from('notifications').insert([{
+          title: '🔔 طلب إجازة جديد للمراجعة',
+          body: `طلب إجازة ${leaveData.leaveType === 'annual' ? 'سنوية' : 'جديد'} من ${emp.name}`,
+          department_id: emp.department_id,
+          target_url: '/approvals' 
+        }]);
+        window.dispatchEvent(new Event('new_notification'));
       }
       
       resetForm();
-      // تحديث الداتا عبر تريجر الـ state
       setCustomStartDate(prev => prev); 
 
     } catch (error: any) { showToast('حدث خطأ أثناء الحفظ.', 'error'); } 
@@ -648,7 +656,7 @@ export default function LeavesPage() {
       {/* ========================================== */}
       <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-200 max-w-6xl mx-auto mt-8 mb-8">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-black text-[var(--color-navy-900)] flex items-center gap-2"><FileText className="text-gray-400"/> أرشيف الإجازات 
+          <h2 className="text-xl font-black text-[var(--color-navy-900)] flex items-center gap-2"><FileText className="text-gray-400"/> أرشيف الأجازات 
              {dateFilter !== 'ALL' && <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded ml-2">(حسب الفلتر الزمني)</span>}
           </h2>
         </div>

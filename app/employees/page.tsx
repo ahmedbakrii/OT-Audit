@@ -49,7 +49,7 @@ export default function EmployeesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    document.title = 'إدارة الموظفين | STAFFCORE';
+    document.title = ' الموظفين | STAFFCORE';
     
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
@@ -117,7 +117,7 @@ export default function EmployeesPage() {
   const getShiftBadge = (shiftName: string) => {
     if (!shiftName) return '-';
     if (shiftName.includes('صباحي') || shiftName.includes('نهار')) return <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold border border-orange-200 shadow-sm">☀️ {shiftName}</span>;
-    if (shiftName.includes('مسائي') || shiftName.includes('ليل')) return <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200 shadow-sm">🌙 {shiftName}</span>;
+    if (shiftName.includes('مسائيئي') || shiftName.includes('ليل')) return <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200 shadow-sm">🌙 {shiftName}</span>;
     return <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-xs font-bold">{shiftName}</span>;
   };
 
