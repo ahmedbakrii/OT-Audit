@@ -33,7 +33,7 @@ function AuditContent() {
   };
 
   useEffect(() => {
-    document.title = 'إدارة التعارضات | OT Audit';
+    document.title = 'إدارة التعارضات | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     

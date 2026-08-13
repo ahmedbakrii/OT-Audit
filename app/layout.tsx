@@ -8,14 +8,14 @@ import PWAInit from '@/components/PWAInit'
 const cairo = Cairo({ subsets: ['arabic'] })
 
 export const metadata: Metadata = {
-  title: 'OT Audit System',
-  description: 'نظام التدقيق والمطابقة الذكي لساعات العمل الإضافية',
+  title: 'STAFFCORE System', // خليناها كابيتال لتبدو أفخم
+  description: 'النظام المركزي لإدارة العمليات، شؤون الموظفين، والمطابقة الذكية', // وصف شامل
   manifest: '/manifest.json',
   
   // اللمسة السحرية لأجهزة الآيفون والآيباد
   appleWebApp: {
     capable: true,
-    title: 'OT Audit',
+    title: 'STAFFCORE',
     statusBarStyle: 'black-translucent',
   },
   icons: {

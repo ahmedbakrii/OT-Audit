@@ -36,7 +36,7 @@ function TimesheetContent() {
   const monthsAr = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 
   useEffect(() => {
-    document.title = 'توليد التايم شيت النهائي | OT Audit';
+    document.title = 'توليد التايم شيت النهائي | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     

@@ -40,7 +40,7 @@ export default function AttendancePage() {
     // 🔴 تم إزالة سطر طرد مدخل البيانات (DATA_ENTRY) للسماح له بالدخول
 
     setUserRole(user.role);
-    document.title = 'سجل الحضور | OT Audit';
+    document.title = 'سجل الحضور | STAFFCORE';
 
     // جلب بيانات القسم وتمريرها للدوال
     async function initUser() {

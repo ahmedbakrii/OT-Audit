@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { ShieldCheck, User, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { Cpu, User, Lock, ArrowRight, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -54,10 +54,10 @@ export default function LoginPage() {
         <div className="bg-[var(--color-navy-900)] p-8 text-center relative overflow-hidden">
           <div className="relative z-10 flex flex-col items-center">
             <div className="bg-white p-3 rounded-full text-[var(--color-navy-900)] mb-3 shadow-lg">
-              <ShieldCheck size={40} />
+              <Cpu size={40} />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-wide">OT Audit System</h1>
-            <p className="text-blue-200 text-sm mt-1">نظام التدقيق والمطابقة الذكي</p>
+            <h1 className="text-2xl font-bold text-white tracking-wide">STAFFCORE</h1>
+            <p className="text-blue-200 text-sm mt-1">لنظام المركزي لإدارة العمليات وشؤون العاملين</p>
           </div>
           <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-blue-500 rounded-full blur-3xl opacity-20"></div>
           <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-500 rounded-full blur-3xl opacity-20"></div>

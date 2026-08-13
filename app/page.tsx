@@ -2,7 +2,7 @@
 import ForbiddenOverlay from '@/components/ForbiddenOverlay';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Users, FileWarning, CheckCircle, TrendingUp, UsersRound, Fingerprint, ClipboardList, ShieldCheck, Filter, AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, BarChart3 as BarIcon, FileClock } from 'lucide-react';
+import { Users, FileWarning, CheckCircle, TrendingUp, UsersRound, Fingerprint, ClipboardList, Cpu, ShieldCheck, Filter, AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, BarChart3 as BarIcon, FileClock } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -71,7 +71,7 @@ export default function Home() {
 
   useEffect(() => {
     if (userRole) {
-       document.title = 'الرئيسية | OT Audit';
+       document.title = 'الرئيسية | STAFFCORE';
        // لا نقوم بتحميل البيانات المعقدة لمدخل البيانات لتخفيف الضغط على السيرفر
        if (userRole !== 'DATA_ENTRY') {
          fetchDashboardData();
@@ -364,7 +364,7 @@ export default function Home() {
           <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-emerald-500 transform transition hover:-translate-y-1 hover:shadow-md cursor-pointer" onClick={() => router.push('/audit?status=MATCHED')}>
             <div className="flex justify-between items-start">
               <div><p className="text-gray-500 text-sm font-bold mb-1">الساعات المعتمدة (مطابق)</p><h3 className="text-3xl font-black text-emerald-600">{loading ? '...' : stats.totalApprovedHours} <span className="text-sm font-bold text-gray-500">ساعة</span></h3></div>
-              <div className="bg-emerald-50 p-3 rounded-xl text-emerald-600"><ShieldCheck size={24} /></div>
+              <div className="bg-emerald-50 p-3 rounded-xl text-emerald-600"><Cpu size={24} /></div>
             </div>
           </div>
         </div>

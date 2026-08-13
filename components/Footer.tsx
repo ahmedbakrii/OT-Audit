@@ -17,7 +17,7 @@ export default function Footer() {
         {/* الجزء الرسمي الخاص بالمصنع */}
         <div className="text-center md:text-right">
           <p className="text-sm font-bold text-gray-600">
-            نظام التدقيق وإدارة العمل الإضافي (OT Audit) © {currentYear}
+            نظام التدقيق وإدارة العمل الإضافي (STAFFCORE) © {currentYear}
           </p>
           <p className="text-xs font-semibold text-gray-400 mt-1">
             Energya Steel Solutions - جميع الحقوق محفوظة

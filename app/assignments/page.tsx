@@ -74,7 +74,7 @@ export default function AssignmentsPage() {
   const [chartData, setChartData] = useState<any[]>([]);
 
   useEffect(() => {
-    document.title = 'إدارة التكليفات | OT Audit';
+    document.title = 'إدارة التكليفات | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
 
@@ -758,7 +758,7 @@ export default function AssignmentsPage() {
             <table className="assignment-header">
               <tbody>
                 <tr>
-                  <td className="header-company"><img src="/energyalogo.png" alt="Logo" className="company-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} /></td>
+                  <td className="header-company"><img src="/energya-logo.png" alt="Logo" className="company-logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} /></td>
                   <td className="header-title"><div className="title-en">Overtime Approval</div><div className="title-ar">نموذج تكليف عمل إضافي</div></td>
                   <td className="header-form"><div>Form No:</div><div className="form-number">HHE-HR-FO-029</div><div>Issue A/1</div></td>
                 </tr>

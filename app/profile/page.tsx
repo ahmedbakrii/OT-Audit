@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, AlertCircle, Save, User, Lock, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Save, User, Lock, Cpu } from 'lucide-react';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -22,7 +22,7 @@ export default function ProfilePage() {
   };
 
   useEffect(() => {
-    document.title = 'إعدادات الحساب | OT Audit';
+    document.title = 'إعدادات الحساب | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) {
       router.push('/login');
@@ -94,7 +94,7 @@ export default function ProfilePage() {
 
       <div className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-[var(--color-navy-500)] flex items-center gap-4">
         <div className="bg-blue-50 p-3 rounded-full text-blue-600">
-          <ShieldCheck size={32} />
+          <Cpu size={32} />
         </div>
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-navy-900)]">إعدادات الحساب الشخصي</h1>

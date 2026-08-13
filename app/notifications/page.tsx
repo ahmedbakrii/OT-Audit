@@ -29,7 +29,7 @@ export default function NotificationsPage() {
   const [departments, setDepartments] = useState<any[]>([]);
 
   useEffect(() => {
-    document.title = 'سجل الإشعارات | OT Audit';
+    document.title = 'سجل الإشعارات | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
 

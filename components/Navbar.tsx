@@ -10,6 +10,7 @@ import {
   Users,
   Fingerprint,
   ClipboardList,
+  Cpu,
   ShieldCheck,
   Menu,
   X,
@@ -342,11 +343,11 @@ export default function Navbar() {
               className="flex-shrink-0 flex items-center gap-2 hover:opacity-80 transition cursor-pointer"
             >
               <div className="bg-white text-[var(--color-navy-900)] p-1.5 rounded-lg shadow-sm">
-                <ShieldCheck size={24} />
+                <Cpu size={24} />
               </div>
 
               <span className="font-black text-xl tracking-wider hidden sm:block">
-                OT Audit
+                STAFFCORE
               </span>
             </Link>
 

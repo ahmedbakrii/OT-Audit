@@ -49,7 +49,7 @@ export default function EmployeesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    document.title = 'إدارة الموظفين | OT Audit';
+    document.title = 'إدارة الموظفين | STAFFCORE';
     
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
