@@ -42,9 +42,7 @@ export default function Navbar() {
   const [showNotifs, setShowNotifs] = useState(false);
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-
   const [notifications, setNotifications] = useState<any[]>([]);
-
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -56,25 +54,18 @@ export default function Navbar() {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        navRef.current &&
-        !navRef.current.contains(event.target as Node)
-      ) {
+      if (navRef.current && !navRef.current.contains(event.target as Node)) {
         setIsProfileOpen(false);
         setShowNotifs(false);
         setOpenMenu(null);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
-
-    return () =>
-      document.removeEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const loadUserAndData = () => {
     const userStr = localStorage.getItem('ot_user');
-
     if (userStr) {
       const parsedUser = JSON.parse(userStr);
       setUser(parsedUser);
@@ -94,21 +85,87 @@ export default function Navbar() {
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('user_login_changed', handleStorageChange);
 
+    // ==========================================
+    // 🔴 1. فتح قناة Realtime مع Supabase 
+    // ==========================================
+    const userStr = localStorage.getItem('ot_user');
+    let realtimeChannel: any = null;
+
+    if (userStr) {
+      const parsedUser = JSON.parse(userStr);
+      
+      // مش هنزعج مدخل البيانات بالإشعارات
+      if (parsedUser.role !== 'DATA_ENTRY') {
+        realtimeChannel = supabase.channel('realtime_notifications')
+          .on(
+            'postgres_changes',
+            { 
+              event: 'INSERT', 
+              schema: 'public', 
+              table: 'notifications',
+              // المدير يشوف إشعارات إدارته بس، الأدمن يشوف كل حاجة
+              filter: parsedUser.role === 'MANAGER' ? `department_id=eq.${parsedUser.department_id}` : undefined
+            },
+            (payload) => {
+              // ==========================================
+              // 🎵 2. نظام الصوت الذكي حسب نوع الإشعار
+              // ==========================================
+              try {
+                const title = payload.new.title || '';
+                let soundFile = '/sound-default.mp3'; // الصوت الافتراضي
+
+                if (title.includes('غياب')) {
+                  soundFile = '/sound-absence.mp3';
+                } else if (title.includes('جزاء')) {
+                  soundFile = '/sound-penalty.mp3';
+                } else if (title.includes('تكليف') || title.includes('إضافي')) {
+                  soundFile = '/sound-assignment.mp3';
+                } else if (title.includes('إجازة') || title.includes('إذن')) {
+                  soundFile = '/sound-leave.mp3';
+                } else if (title.includes('تعديل') || title.includes('حذف')) {
+                  soundFile = '/sound-alert.mp3'; 
+                }
+
+                const audio = new Audio(soundFile);
+                audio.play().catch(e => console.log('Autoplay blocked by browser'));
+              } catch (e) {}
+
+              // 2. تحديث الجرس والقائمة فوراً بدون Refresh
+              setNotifications(prev => [payload.new, ...prev]);
+
+              // 3. إظهار الإشعار بره المتصفح (Browser/OS Notification)
+              if (Notification.permission === 'granted') {
+                new Notification(payload.new.title, {
+                  body: payload.new.body,
+                  icon: '/logo-name.png' // لوجو السيستم
+                });
+              }
+            }
+          )
+          .subscribe();
+      }
+    }
+
+    // طلب صلاحية الإشعارات الخارجية أول مرة يفتح فيها السيستم
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
     return () => {
       window.removeEventListener('new_notification', handleNewNotif);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('user_login_changed', handleStorageChange);
+      
+      // إغلاق الاتصال لما اليوزر يخرج عشان منستهلكش السيرفر
+      if (realtimeChannel) {
+        supabase.removeChannel(realtimeChannel);
+      }
     };
   }, []);
 
   async function fetchUserDataAndNotifications(userId: string, role: string) {
     try {
-      const { data: userData } = await supabase
-        .from('users')
-        .select('name, department_id')
-        .eq('id', userId)
-        .single();
-
+      const { data: userData } = await supabase.from('users').select('name, department_id').eq('id', userId).single();
       if (userData) {
         setDbUserName(userData.name);
 
@@ -116,11 +173,7 @@ export default function Navbar() {
           const startOfToday = new Date();
           startOfToday.setHours(0, 0, 0, 0);
 
-          let query = supabase
-            .from('notifications')
-            .select('*')
-            .gte('created_at', startOfToday.toISOString())
-            .order('created_at', { ascending: false });
+          let query = supabase.from('notifications').select('*').gte('created_at', startOfToday.toISOString()).order('created_at', { ascending: false });
 
           if (role === 'MANAGER' && userData.department_id) {
             query = query.eq('department_id', userData.department_id);
@@ -178,13 +231,7 @@ export default function Navbar() {
     },
   ];
 
-  const visibleGroups = navigationGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => item.roles.includes(user.role)),
-    }))
-    .filter((group) => group.items.length > 0);
-
+  const visibleGroups = navigationGroups.map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes(user.role)), })).filter((group) => group.items.length > 0);
   const unreadCount = notifications.filter((n) => !n.is_read).length;
   const isGroupActive = (group: any) => group.items.some((item: any) => pathname === item.href);
 
@@ -264,7 +311,6 @@ export default function Navbar() {
 
           <div className="flex items-center gap-3">
             
-            {/* 🔴 زر الإعدادات للأدمن فقط */}
             {user.role === 'ADMIN' && (
               <Link href="/settings" className={`hidden md:flex p-2 rounded-full transition border shadow-sm ${pathname === '/settings' ? 'bg-[var(--color-navy-900)] text-white border-[var(--color-navy-900)]' : 'bg-white text-slate-600 hover:text-blue-600 hover:bg-slate-100 border-slate-200'}`} title="إعدادات النظام">
                 <Settings size={20} className={pathname === '/settings' ? 'animate-spin-slow' : ''} />
@@ -385,7 +431,6 @@ export default function Navbar() {
                 <p className="text-slate-900 font-bold">{dbUserName}</p>
                 <p className="text-slate-500 text-xs">{user.role === 'ADMIN' ? 'مدير النظام' : user.role === 'DATA_ENTRY' ? 'مدخل بيانات' : user.role === 'FACTORY_MANAGER' ? 'مدير المصنع' : 'مدير إدارة'}</p>
               </div>
-              {/* 🔴 رابط الإعدادات في الموبايل للأدمن */}
               {user.role === 'ADMIN' && (
                 <Link href="/settings" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center w-full gap-2 px-3 py-3 rounded-md text-base font-bold text-blue-600 hover:bg-blue-50"><Settings size={18} /> إعدادات النظام</Link>
               )}

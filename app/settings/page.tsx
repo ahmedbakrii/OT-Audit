@@ -79,7 +79,7 @@ export default function SettingsPage() {
 
   // تجميع وترتيب المستخدمين حسب الإدارات
   const groupedUsers = usersList.reduce((acc: any, user: any) => {
-    const deptName = user.departments?.name || 'إدارة عليا (بدون قسم)';
+    const deptName = user.departments?.name || 'إدارة عليا  ';
     if (!acc[deptName]) acc[deptName] = [];
     acc[deptName].push(user);
     return acc;
@@ -92,8 +92,8 @@ export default function SettingsPage() {
 
   // ترتيب الجروبات (الإدارة العليا أولاً، ثم أبجدي)
   const sortedDeptNames = Object.keys(groupedUsers).sort((a, b) => {
-    if (a === 'إدارة عليا (بدون قسم)') return -1;
-    if (b === 'إدارة عليا (بدون قسم)') return 1;
+    if (a === 'إدارة عليا  ') return -1;
+    if (b === 'إدارة عليا  ') return 1;
     return a.localeCompare(b, 'ar');
   });
 
