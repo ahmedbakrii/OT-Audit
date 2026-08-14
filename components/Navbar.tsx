@@ -108,27 +108,34 @@ export default function Navbar() {
             },
             (payload) => {
               // ==========================================
-              // 🎵 2. نظام الصوت الذكي حسب نوع الإشعار
+              // 🎵 2. نظام الصوت الآمن (Fallback System)
               // ==========================================
-              try {
+              const playSound = async () => {
                 const title = payload.new.title || '';
-                let soundFile = '/sound-default.mp3'; // الصوت الافتراضي
+                let soundFile = '/sound-default.mp3'; // الأساسي اللي لازم يكون موجود
 
-                if (title.includes('غياب')) {
-                  soundFile = '/sound-absence.mp3';
-                } else if (title.includes('جزاء')) {
-                  soundFile = '/sound-penalty.mp3';
-                } else if (title.includes('تكليف') || title.includes('إضافي')) {
-                  soundFile = '/sound-assignment.mp3';
-                } else if (title.includes('إجازة') || title.includes('إذن')) {
-                  soundFile = '/sound-leave.mp3';
-                } else if (title.includes('تعديل') || title.includes('حذف')) {
-                  soundFile = '/sound-alert.mp3'; 
+                // تحديد الصوت بناءً على الكلمة
+                if (title.includes('غياب')) soundFile = '/sound-absence.mp3';
+                else if (title.includes('جزاء')) soundFile = '/sound-penalty.mp3';
+                else if (title.includes('تكليف') || title.includes('إضافي')) soundFile = '/sound-assignment.mp3';
+                else if (title.includes('إجازة') || title.includes('إذن')) soundFile = '/sound-leave.mp3';
+
+                try {
+                  const audio = new Audio(soundFile);
+                  await audio.play();
+                } catch (e) {
+                  // لو الملف المخصص مش موجود أو حصل أي خطأ، هنشغل الأساسي
+                  console.log(`Failed to play ${soundFile}, playing default sound.`);
+                  try {
+                    const fallbackAudio = new Audio('/sound-default.mp3');
+                    await fallbackAudio.play();
+                  } catch (fallbackError) {
+                    console.log('Autoplay blocked by browser or default sound missing');
+                  }
                 }
+              };
 
-                const audio = new Audio(soundFile);
-                audio.play().catch(e => console.log('Autoplay blocked by browser'));
-              } catch (e) {}
+              playSound(); // تشغيل الدالة
 
               // 2. تحديث الجرس والقائمة فوراً بدون Refresh
               setNotifications(prev => [payload.new, ...prev]);
@@ -216,7 +223,7 @@ export default function Navbar() {
         { name: 'الأجازات', description: 'إدارة طلبات الأجازات', href: '/leaves', icon: CalendarDays, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الأذونات', description: 'إدارة طلبات الأذونات', href: '/permissions', icon: Clock, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الغياب', description: 'إدارة كشوف الغياب', href: '/absences', icon: UserX, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
-        { name: 'الجزاءات', description: 'طلبات توقيع الجزاءات', href: '/penalty', icon: Scale, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
+        { name: 'الجزاءات', description: 'طلبات توقيع الجزاءات', href: '/penalties', icon: Scale, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
       ],
     },
     {
