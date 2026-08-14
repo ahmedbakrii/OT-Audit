@@ -162,7 +162,6 @@ export default function Navbar() {
         { name: 'إدارة الموظفين', description: 'إدارة بيانات الموظفين', href: '/employees', icon: Users, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الأجازات', description: 'إدارة طلبات الأجازات', href: '/leaves', icon: CalendarDays, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الأذونات', description: 'إدارة طلبات الأذونات', href: '/permissions', icon: Clock, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
-        // 🔴 الصفحات الجديدة
         { name: 'الغياب', description: 'إدارة كشوف الغياب', href: '/absences', icon: UserX, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الجزاءات', description: 'طلبات توقيع الجزاءات', href: '/penalty', icon: Scale, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
       ],
@@ -264,6 +263,14 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-3">
+            
+            {/* 🔴 زر الإعدادات للأدمن فقط */}
+            {user.role === 'ADMIN' && (
+              <Link href="/settings" className={`hidden md:flex p-2 rounded-full transition border shadow-sm ${pathname === '/settings' ? 'bg-[var(--color-navy-900)] text-white border-[var(--color-navy-900)]' : 'bg-white text-slate-600 hover:text-blue-600 hover:bg-slate-100 border-slate-200'}`} title="إعدادات النظام">
+                <Settings size={20} className={pathname === '/settings' ? 'animate-spin-slow' : ''} />
+              </Link>
+            )}
+
             {user.role !== 'DATA_ENTRY' && (
               <div className="relative">
                 <button onClick={() => { setShowNotifs(!showNotifs); setIsProfileOpen(false); setOpenMenu(null); setIsMobileMenuOpen(false); }} className="relative p-2 rounded-full bg-white hover:bg-slate-100 transition text-slate-600 hover:text-blue-600 border border-slate-200 shadow-sm">
@@ -378,6 +385,10 @@ export default function Navbar() {
                 <p className="text-slate-900 font-bold">{dbUserName}</p>
                 <p className="text-slate-500 text-xs">{user.role === 'ADMIN' ? 'مدير النظام' : user.role === 'DATA_ENTRY' ? 'مدخل بيانات' : user.role === 'FACTORY_MANAGER' ? 'مدير المصنع' : 'مدير إدارة'}</p>
               </div>
+              {/* 🔴 رابط الإعدادات في الموبايل للأدمن */}
+              {user.role === 'ADMIN' && (
+                <Link href="/settings" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center w-full gap-2 px-3 py-3 rounded-md text-base font-bold text-blue-600 hover:bg-blue-50"><Settings size={18} /> إعدادات النظام</Link>
+              )}
               <button onClick={() => { setIsMobileMenuOpen(false); router.push('/profile'); }} className="flex items-center w-full gap-2 px-3 py-3 rounded-md text-base font-bold text-slate-600 hover:bg-slate-100"><Settings size={18} /> تعديل الحساب</button>
               <button onClick={handleLogout} className="flex items-center w-full gap-2 px-3 py-3 rounded-md text-base font-bold text-red-600 hover:bg-red-50"><LogOut size={18} /> تسجيل خروج</button>
             </div>
