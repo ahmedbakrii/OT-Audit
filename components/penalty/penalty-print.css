@@ -1,0 +1,830 @@
+/* =========================================================
+   PENALTY REQUEST PRINT
+   HHE-HR-FO-027
+========================================================= */
+
+.penalty-page {
+  width: 100%;
+  min-height: 100vh;
+
+  background: #f3f4f6;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  padding: 30px 0;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   PRINT BUTTON
+========================================================= */
+
+.penalty-controls {
+  width: 210mm;
+
+  display: flex;
+  justify-content: flex-end;
+
+  margin-bottom: 16px;
+}
+
+
+.penalty-print-button {
+  border: none;
+
+  background: #0f172a;
+  color: #fff;
+
+  padding: 9px 22px;
+
+  border-radius: 6px;
+
+  font-family: Arial, Tahoma, sans-serif;
+
+  font-size: 14px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+
+.penalty-print-button:hover {
+  background: #1e293b;
+}
+
+
+/* =========================================================
+   DOCUMENT
+========================================================= */
+
+.penalty-document {
+  width: 210mm;
+
+  background: transparent;
+}
+
+
+/* =========================================================
+   A4 PAPER
+========================================================= */
+
+.penalty-paper {
+  width: 210mm;
+  height: 297mm;
+
+  background: #fff;
+
+  color: #000;
+
+  box-sizing: border-box;
+
+  padding:
+    10mm
+    11mm
+    9mm
+    11mm;
+
+  font-family:
+    "Times New Roman",
+    Times,
+    serif;
+
+  font-size: 10pt;
+
+  line-height: 1.15;
+
+  direction: ltr;
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   PAGE 2
+========================================================= */
+
+.penalty-page-two {
+  margin-top: 8mm;
+}
+
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.penalty-header {
+  width: 100%;
+
+  height: 27mm;
+
+  border-collapse: collapse;
+
+  table-layout: fixed;
+
+  direction: ltr;
+}
+
+
+.penalty-header td {
+  border: 0.35mm solid #000;
+
+  padding: 1.5mm;
+
+  vertical-align: middle;
+
+  box-sizing: border-box;
+
+  color: #000;
+}
+
+
+.header-company {
+  width: 34%;
+
+  text-align: center;
+}
+
+
+.penalty-logo {
+  display: block;
+
+  width: 48mm;
+
+  max-height: 17mm;
+
+  height: auto;
+
+  object-fit: contain;
+
+  margin: 0 auto;
+}
+
+
+.header-title {
+  width: 46%;
+
+  text-align: center;
+}
+
+
+.title-en {
+  font-size: 17pt;
+
+  font-weight: 700;
+
+  line-height: 1.1;
+
+  margin-bottom: 2.5mm;
+}
+
+
+.title-ar {
+  direction: rtl;
+
+  font-size: 13pt;
+
+  font-weight: 700;
+
+  line-height: 1.1;
+}
+
+
+.header-form {
+  width: 20%;
+
+  text-align: center;
+
+  font-size: 9.5pt;
+
+  line-height: 1.45;
+}
+
+
+.form-number {
+  font-size: 10pt;
+
+  font-weight: 700;
+}
+
+
+/* =========================================================
+   EMPLOYEE INFORMATION
+========================================================= */
+
+.employee-info-table {
+  width: 100%;
+
+  margin-top: 6mm;
+
+  border-collapse: collapse;
+
+  table-layout: fixed;
+
+  direction: ltr;
+}
+
+
+.employee-info-table td {
+  width: 50%;
+
+  height: 11mm;
+
+  border: none;
+
+  padding: 0 2mm;
+
+  vertical-align: bottom;
+
+  color: #000;
+
+  font-size: 10.5pt;
+
+  white-space: nowrap;
+}
+
+
+.field-left {
+  text-align: left;
+}
+
+
+.field-right {
+  text-align: right;
+}
+
+
+.field-label {
+  font-weight: 700;
+}
+
+
+.field-ar {
+  direction: rtl;
+
+  margin-left: 2px;
+
+  font-weight: 400;
+}
+
+
+.field-value {
+  display: inline-block;
+
+  min-width: 35mm;
+
+  margin-left: 3mm;
+
+  padding: 0 2mm;
+
+  min-height: 5mm;
+
+  border-bottom: 0.25mm dotted #000;
+
+  text-align: center;
+
+  direction: rtl;
+
+  font-weight: 400;
+}
+
+
+/* =========================================================
+   SECTION BLOCK
+========================================================= */
+
+.section-block {
+  width: 100%;
+
+  margin-top: 7mm;
+
+  text-align: center;
+}
+
+
+.section-title {
+  font-size: 11pt;
+
+  font-weight: 700;
+
+  line-height: 1.1;
+}
+
+
+.section-title-ar {
+  margin-top: 1mm;
+
+  direction: rtl;
+
+  font-size: 10pt;
+
+  font-weight: 400;
+}
+
+
+.section-line {
+  width: 100%;
+
+  min-height: 7mm;
+
+  margin-top: 3mm;
+
+  border-bottom: 0.25mm dotted #000;
+
+  text-align: center;
+
+  direction: rtl;
+
+  font-size: 10.5pt;
+}
+
+
+/* =========================================================
+   SUBJECT
+========================================================= */
+
+.subject-block {
+  margin-top: 8mm;
+}
+
+
+.subject-area {
+  width: 100%;
+
+  height: 34mm;
+
+  margin-top: 3mm;
+
+  border: 0.25mm dotted #000;
+
+  padding: 3mm;
+
+  box-sizing: border-box;
+
+  direction: rtl;
+
+  text-align: right;
+
+  white-space: pre-wrap;
+
+  overflow: hidden;
+
+  font-size: 10.5pt;
+}
+
+
+/* =========================================================
+   RECOMMENDATION
+========================================================= */
+
+.recommendation-block {
+  margin-top: 7mm;
+}
+
+
+.recommendation-area {
+  width: 100%;
+
+  height: 22mm;
+
+  margin-top: 3mm;
+
+  border: 0.25mm dotted #000;
+
+  padding: 3mm;
+
+  box-sizing: border-box;
+
+  direction: rtl;
+
+  text-align: right;
+
+  white-space: pre-wrap;
+
+  overflow: hidden;
+
+  font-size: 10.5pt;
+}
+
+
+/* =========================================================
+   REQUESTING DEPARTMENT
+========================================================= */
+
+.requesting-section {
+  margin-top: 8mm;
+
+  text-align: center;
+}
+
+
+.requesting-title {
+  font-size: 10.5pt;
+
+  font-weight: 700;
+}
+
+
+.requesting-title-ar {
+  margin-top: 1mm;
+
+  direction: rtl;
+
+  font-size: 10pt;
+}
+
+
+.requesting-value {
+  width: 70%;
+
+  min-height: 7mm;
+
+  margin: 3mm auto 0;
+
+  border-bottom: 0.25mm dotted #000;
+
+  direction: rtl;
+
+  text-align: center;
+
+  font-size: 10.5pt;
+}
+
+
+/* =========================================================
+   MANAGER ROW
+========================================================= */
+
+.manager-row {
+  width: 100%;
+
+  margin-top: 10mm;
+
+  display: grid;
+
+  grid-template-columns: 1fr 1fr;
+
+  column-gap: 25mm;
+
+  direction: ltr;
+}
+
+
+.manager-field {
+  text-align: center;
+}
+
+
+.manager-title {
+  font-size: 10.5pt;
+
+  font-weight: 700;
+}
+
+
+.manager-ar {
+  margin-top: 1mm;
+
+  direction: rtl;
+
+  font-size: 10pt;
+}
+
+
+.manager-value {
+  margin-top: 4mm;
+
+  min-height: 7mm;
+
+  border-bottom: 0.25mm dotted #000;
+
+  direction: rtl;
+
+  text-align: center;
+
+  font-size: 10.5pt;
+}
+
+
+/* =========================================================
+   PAGE 2 DECISION
+========================================================= */
+
+.decision-section {
+  margin-top: 13mm;
+
+  text-align: center;
+}
+
+
+.decision-title {
+  font-size: 13pt;
+
+  font-weight: 700;
+}
+
+
+.decision-title-ar {
+  margin-top: 2mm;
+
+  direction: rtl;
+
+  font-size: 12pt;
+}
+
+
+.decision-area {
+  width: 100%;
+
+  height: 75mm;
+
+  margin-top: 5mm;
+
+  border: 0.25mm dotted #000;
+
+  padding: 4mm;
+
+  box-sizing: border-box;
+
+  direction: rtl;
+
+  text-align: right;
+
+  white-space: pre-wrap;
+
+  overflow: hidden;
+
+  font-size: 11pt;
+}
+
+
+/* =========================================================
+   APPROVALS
+========================================================= */
+
+.approval-section {
+  width: 100%;
+
+  margin-top: 15mm;
+
+  display: grid;
+
+  grid-template-columns: 1fr 1fr;
+
+  column-gap: 25mm;
+
+  direction: ltr;
+}
+
+
+.approval-box {
+  text-align: center;
+}
+
+
+.approval-title {
+  font-size: 11pt;
+
+  font-weight: 700;
+}
+
+
+.approval-ar {
+  margin-top: 1mm;
+
+  direction: rtl;
+
+  font-size: 10pt;
+}
+
+
+.approval-name {
+  min-height: 7mm;
+
+  margin-top: 7mm;
+
+  padding: 0 3mm;
+
+  border-bottom: 0.25mm dotted #000;
+
+  direction: rtl;
+
+  text-align: center;
+
+  font-size: 10.5pt;
+}
+
+
+.approval-signature {
+  margin-top: 7mm;
+
+  font-size: 9.5pt;
+}
+
+
+.approval-line {
+  margin-top: 3mm;
+
+  min-height: 7mm;
+
+  font-size: 9.5pt;
+
+  direction: rtl;
+}
+
+
+.approval-date {
+  margin-top: 7mm;
+
+  font-size: 10pt;
+}
+
+
+.approval-date span {
+  display: inline-block;
+
+  min-width: 30mm;
+
+  margin-left: 3mm;
+
+  border-bottom: 0.25mm dotted #000;
+
+  text-align: center;
+}
+
+
+/* =========================================================
+   EMPLOYEE ACKNOWLEDGEMENT
+========================================================= */
+
+.employee-acknowledgement {
+  border-left: 0.25mm solid transparent;
+}
+
+
+/* =========================================================
+   EMPLOYEE REFERENCE
+========================================================= */
+
+.employee-reference {
+  width: 100%;
+
+  margin-top: 22mm;
+
+  padding-top: 8mm;
+
+  border-top: 0.25mm solid #000;
+}
+
+
+.reference-row {
+  display: grid;
+
+  grid-template-columns: 1fr 1fr;
+
+  column-gap: 20mm;
+
+  direction: ltr;
+}
+
+
+.reference-row > div {
+  text-align: center;
+
+  font-size: 10pt;
+}
+
+
+.reference-label {
+  font-weight: 700;
+}
+
+
+.reference-ar {
+  margin-left: 2px;
+
+  direction: rtl;
+}
+
+
+.reference-value {
+  display: inline-block;
+
+  min-width: 30mm;
+
+  margin-left: 3mm;
+
+  border-bottom: 0.25mm dotted #000;
+
+  direction: rtl;
+
+  text-align: center;
+}
+
+
+/* =========================================================
+   PRINT
+========================================================= */
+
+@media print {
+
+  @page {
+    size: A4 portrait;
+
+    margin: 0;
+  }
+
+
+  html,
+  body {
+    width: 210mm;
+
+    min-height: 297mm;
+
+    margin: 0;
+
+    padding: 0;
+
+    background: white !important;
+  }
+
+
+  body {
+    -webkit-print-color-adjust: exact !important;
+
+    print-color-adjust: exact !important;
+  }
+
+
+  .no-print {
+    display: none !important;
+  }
+
+
+  .penalty-page {
+    width: 210mm;
+
+    min-height: 297mm;
+
+    padding: 0;
+
+    margin: 0;
+
+    display: block;
+
+    background: white;
+  }
+
+
+  .penalty-document {
+    width: 210mm;
+
+    margin: 0;
+
+    padding: 0;
+  }
+
+
+  .penalty-paper {
+    width: 210mm;
+
+    height: 297mm;
+
+    margin: 0;
+
+    padding:
+      10mm
+      11mm
+      9mm
+      11mm;
+
+    box-shadow: none;
+
+    overflow: hidden;
+
+    page-break-after: always;
+
+    break-after: page;
+  }
+
+
+  .penalty-page-two {
+    margin-top: 0;
+
+    page-break-after: auto;
+
+    break-after: auto;
+  }
+
+
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+
+    print-color-adjust: exact !important;
+  }
+}

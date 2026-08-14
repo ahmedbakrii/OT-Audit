@@ -2,7 +2,13 @@
 import ForbiddenOverlay from '@/components/ForbiddenOverlay';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Users, FileWarning, CheckCircle, TrendingUp, UsersRound, Fingerprint, ClipboardList, Cpu, ShieldCheck, Filter, AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, BarChart3 as BarIcon, FileClock } from 'lucide-react';
+import { 
+  Users, FileWarning, CheckCircle, TrendingUp, UsersRound, 
+  Fingerprint, ClipboardList, Cpu, ShieldCheck, Filter, 
+  AlertTriangle, TimerOff, Timer, X, PieChart as PieIcon, 
+  BarChart3 as BarIcon, FileClock, CalendarDays, Clock, 
+  UserX, Scale, Ban 
+} from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -71,7 +77,11 @@ export default function Home() {
 
   useEffect(() => {
     if (userRole) {
-       document.title = 'الرئيسية | STAFFCORE';
+       // 🔴 استخدام setTimeout لإجبار المتصفح على تغيير اسم التاب
+       setTimeout(() => {
+         document.title = 'الرئيسية | STAFFCORE';
+       }, 100);
+
        // لا نقوم بتحميل البيانات المعقدة لمدخل البيانات لتخفيف الضغط على السيرفر
        if (userRole !== 'DATA_ENTRY') {
          fetchDashboardData();
@@ -123,13 +133,17 @@ export default function Home() {
             totalAssignedEmps++; 
 
             const shift = emp.shift_snapshot || emp.employees?.shifts?.name || '';
-            const isNight = shift.includes('ليل') || shift.includes('مسائي');
+            const isNight = shift.includes('ليل') || shift.includes('مسائي') || shift.includes('night');
             const basicEnd = isNight ? '04:00' : '16:00';
             
             const actualEnd = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
 
             const getMins = (t: string) => { if (!t) return 0; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-            let otDuration = getMins(actualEnd) - getMins(basicEnd);
+            
+            let actualMins = getMins(actualEnd);
+            let basicMins = getMins(basicEnd);
+            
+            let otDuration = actualMins - basicMins;
             if (otDuration < 0) otDuration += 24 * 60;
             const hours = otDuration / 60;
 
@@ -224,7 +238,7 @@ export default function Home() {
   else if (selectedDeptFilter) displayDeptName = departments.find(d => d.id === selectedDeptFilter)?.name || '';
 
   const currentHour = new Date().getHours();
-  const greeting = currentHour < 12 ? 'صباح الخير ☀️' : currentHour < 18 ? 'طاب مسائيؤك 🌤️' : 'مسائيء الخير 🌙';
+  const greeting = currentHour < 12 ? 'صباح الخير ☀️' : currentHour < 18 ? 'طاب يومك 🌤️' : 'مساء الخير 🌙';
 
   return (
     <div className="relative w-full min-h-screen">
@@ -292,34 +306,66 @@ export default function Home() {
           <div className="absolute left-0 top-0 opacity-10 transform -translate-x-1/4 -translate-y-1/4"><TrendingUp size={200} /></div>
         </div>
 
+        {/* 🔴 قسم البوابات والأنظمة الشامل (10 بوابات نشطة بالكامل) */}
         <div>
-          <h2 className="text-xl font-bold text-[var(--color-navy-900)] mb-4 flex items-center gap-2">الوصول السريع</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <Link href="/employees" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-blue-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
-              <div className="bg-blue-50 p-4 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition transform group-hover:scale-110"><UsersRound size={28} /></div>
-              <span className="font-bold text-gray-700 group-hover:text-blue-700">إدارة الموظفين</span>
+          <h2 className="text-xl font-black text-[var(--color-navy-900)] mb-4 flex items-center gap-2 border-r-4 border-[var(--color-navy-500)] pr-3">البوابات والأنظمة المتاحة</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            
+            <Link href="/employees" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-blue-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-blue-50 p-3 rounded-2xl text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition transform group-hover:-translate-y-1"><UsersRound size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">إدارة الموظفين</span>
             </Link>
-            <Link href="/attendance" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-indigo-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
-              <div className="bg-indigo-50 p-4 rounded-full text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition transform group-hover:scale-110"><Fingerprint size={28} /></div>
-              <span className="font-bold text-gray-700 group-hover:text-indigo-700">سجل البصمة</span>
+            
+            <Link href="/attendance" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-cyan-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-cyan-50 p-3 rounded-2xl text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition transform group-hover:-translate-y-1"><Fingerprint size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">سجل البصمة</span>
             </Link>
-            <Link href="/assignments" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-purple-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
-              <div className="bg-purple-50 p-4 rounded-full text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition transform group-hover:scale-110"><ClipboardList size={28} /></div>
-              <span className="font-bold text-gray-700 group-hover:text-purple-700">التكاليف المسبقة</span>
+
+            <Link href="/assignments" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-purple-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-purple-50 p-3 rounded-2xl text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition transform group-hover:-translate-y-1"><ClipboardList size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">التكليفات والإضافي</span>
             </Link>
-            <Link href="/timesheet" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-orange-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
-              <div className="bg-orange-50 p-4 rounded-full text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition transform group-hover:scale-110"><FileClock size={28} /></div>
-              <span className="font-bold text-gray-700 group-hover:text-orange-700">تصدير التايم شيت</span>
+            
+            <Link href="/leaves" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-emerald-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-emerald-50 p-3 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition transform group-hover:-translate-y-1"><CalendarDays size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">طلبات الإجازات</span>
             </Link>
-            <Link href="/audit" className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-emerald-400 hover:shadow-md transition group flex flex-col items-center text-center gap-3">
-              <div className="bg-emerald-50 p-4 rounded-full text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition transform group-hover:scale-110"><ShieldCheck size={28} /></div>
-              <span className="font-bold text-gray-700 group-hover:text-emerald-700">المطابقة والتدقيق</span>
+
+            <Link href="/permissions" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-indigo-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition transform group-hover:-translate-y-1"><Clock size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">أذونات الخروج</span>
             </Link>
+
+            <Link href="/absences" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-pink-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-pink-50 p-3 rounded-2xl text-pink-600 group-hover:bg-pink-600 group-hover:text-white transition transform group-hover:-translate-y-1"><UserX size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">إدارة الغياب</span>
+            </Link>
+
+            <Link href="/penalties" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-red-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-red-50 p-3 rounded-2xl text-red-600 group-hover:bg-red-600 group-hover:text-white transition transform group-hover:-translate-y-1"><Scale size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">إدارة الجزاءات</span>
+            </Link>
+
+            <Link href="/approvals" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-orange-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-orange-50 p-3 rounded-2xl text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition transform group-hover:-translate-y-1"><CheckCircle size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">مركز الاعتمادات</span>
+            </Link>
+
+            <Link href="/audit" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-teal-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-teal-50 p-3 rounded-2xl text-teal-600 group-hover:bg-teal-600 group-hover:text-white transition transform group-hover:-translate-y-1"><ShieldCheck size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">المطابقة والتدقيق</span>
+            </Link>
+
+            <Link href="/timesheet" className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:border-amber-400 hover:shadow-md transition group flex flex-col items-center text-center gap-2">
+              <div className="bg-amber-50 p-3 rounded-2xl text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition transform group-hover:-translate-y-1"><FileClock size={24} /></div>
+              <span className="font-bold text-gray-700 text-sm">تصدير التايم شيت</span>
+            </Link>
+
           </div>
         </div>
 
         <div className="bg-white p-5 rounded-xl shadow-sm border flex flex-col md:flex-row justify-between items-center gap-4">
-          <h2 className="text-lg font-bold text-[var(--color-navy-900)] flex items-center gap-2"><Filter size={20} className="text-[var(--color-navy-500)]" /> فلتر لوحة التحكم</h2>
+          <h2 className="text-lg font-bold text-[var(--color-navy-900)] flex items-center gap-2"><Filter size={20} className="text-[var(--color-navy-500)]" /> فلتر الإحصائيات (أسفل)</h2>
           <div className="flex flex-wrap items-center gap-4">
             {(userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') && (
               <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-lg p-1.5 px-3">

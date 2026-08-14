@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { CheckCircle, XCircle, Clock, CalendarDays, CheckCircle2, AlertCircle, AlertTriangle, MessageSquare, Users } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, CalendarDays, CheckCircle2, AlertCircle, AlertTriangle, Users, UserX, Gavel } from 'lucide-react';
 
 export default function ApprovalsPage() {
   const router = useRouter();
@@ -14,6 +14,9 @@ export default function ApprovalsPage() {
   const [leaves, setLeaves] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
+  const [absences, setAbsences] = useState<any[]>([]);
+  // 🔴 1. إضافة الـ State الخاص بالجزاءات
+  const [penalty, setpenalty] = useState<any[]>([]);
 
   const [rejectModal, setRejectModal] = useState({ show: false, type: '', id: '', reason: '' });
 
@@ -23,7 +26,6 @@ export default function ApprovalsPage() {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
   };
 
-  // 🔴 دالة موحدة لحساب الساعات (نفس الموجودة في صفحة التكاليف)
   const checkIsNightShift = (shiftName: string) => {
     if (!shiftName) return false;
     const s = shiftName.toLowerCase();
@@ -42,7 +44,7 @@ export default function ApprovalsPage() {
   };
 
   useEffect(() => {
-    document.title = 'مركز الموافقات | STAFFCORE';
+    setTimeout(() => { document.title = 'مركز الموافقات | STAFFCORE'; }, 100);
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     
@@ -74,23 +76,42 @@ export default function ApprovalsPage() {
       ot_assignment_employees(emp_number, ot_end_time, shift_snapshot, employees(name, job_title, companies(name), shifts(name)))
     `).eq('status', 'PENDING').order('created_at', { ascending: true });
 
+    let abQuery = supabase.from('absence_requests').select(`
+      *, 
+      departments(name), 
+      absence_employees(emp_number, reason, remarks, employees(name, job_title, companies(name), shifts(name)))
+    `).eq('status', 'PENDING').order('created_at', { ascending: true });
+
+    // 🔴 2. جلب طلبات الجزاءات المعلقة
+    let peQuery = supabase.from('penalty_requests').select(`
+      *, 
+      employees!inner(name, emp_number, job_title, departments(name)),
+      req_dept:requesting_dept_id(name)
+    `).eq('status', 'PENDING').order('created_at', { ascending: true });
+
     if (role === 'MANAGER' && deptId) {
       lQuery = lQuery.eq('employees.department_id', deptId);
       pQuery = pQuery.eq('employees.department_id', deptId);
       aQuery = aQuery.eq('department_id', deptId);
+      abQuery = abQuery.eq('department_id', deptId);
+      // المدير يشوف الجزاءات اللي الإدارة بتاعته طالباها، أو اللي مطلوبة على موظفين من إدارته
+      peQuery = peQuery.or(`requesting_dept_id.eq.${deptId},department_id.eq.${deptId}`);
     }
 
-    const [lRes, pRes, aRes] = await Promise.all([lQuery, pQuery, aQuery]);
+    const [lRes, pRes, aRes, abRes, peRes] = await Promise.all([lQuery, pQuery, aQuery, abQuery, peQuery]);
     
     if (lRes.data) setLeaves(lRes.data);
     if (pRes.data) setPermissions(pRes.data);
     if (aRes.data) setAssignments(aRes.data);
+    if (abRes.data) setAbsences(abRes.data);
+    if (peRes.data) setpenalty(peRes.data); // تعيين داتا الجزاءات
     
     setLoading(false);
   }
 
-  const handleApprove = async (type: 'leave' | 'permission' | 'assignment', id: string) => {
-    const table = type === 'leave' ? 'leave_requests' : type === 'permission' ? 'permission_requests' : 'ot_assignments';
+  // 🔴 3. تحديث دالة الاعتماد لتدعم الجزاءات
+  const handleApprove = async (type: 'leave' | 'permission' | 'assignment' | 'absence' | 'penalty', id: string) => {
+    const table = type === 'leave' ? 'leave_requests' : type === 'permission' ? 'permission_requests' : type === 'absence' ? 'absence_requests' : type === 'penalty' ? 'penalty_requests' : 'ot_assignments';
     try {
       const { error } = await supabase.from(table).update({ status: 'APPROVED' }).eq('id', id);
       if (error) throw error;
@@ -98,14 +119,17 @@ export default function ApprovalsPage() {
       
       if (type === 'leave') setLeaves(prev => prev.filter(item => item.id !== id));
       else if (type === 'permission') setPermissions(prev => prev.filter(item => item.id !== id));
+      else if (type === 'absence') setAbsences(prev => prev.filter(item => item.id !== id));
+      else if (type === 'penalty') setpenalty(prev => prev.filter(item => item.id !== id));
       else setAssignments(prev => prev.filter(item => item.id !== id));
 
     } catch (err) { showToast('حدث خطأ أثناء الاعتماد', 'error'); }
   };
 
+  // 🔴 4. تحديث دالة الرفض لتدعم الجزاءات
   const handleRejectSubmit = async () => {
-    const table = rejectModal.type === 'leave' ? 'leave_requests' : rejectModal.type === 'permission' ? 'permission_requests' : 'ot_assignments';
-    const reasonField = rejectModal.type === 'leave' ? 'manager_notes' : rejectModal.type === 'permission' ? 'special_circumstances' : 'reason'; 
+    const table = rejectModal.type === 'leave' ? 'leave_requests' : rejectModal.type === 'permission' ? 'permission_requests' : rejectModal.type === 'absence' ? 'absence_requests' : rejectModal.type === 'penalty' ? 'penalty_requests' : 'ot_assignments';
+    const reasonField = rejectModal.type === 'leave' ? 'manager_notes' : rejectModal.type === 'permission' ? 'special_circumstances' : rejectModal.type === 'absence' ? 'manager_notes' : rejectModal.type === 'penalty' ? 'manager_notes' : 'reason'; 
     
     try {
       const payload: any = { status: 'REJECTED' };
@@ -120,6 +144,8 @@ export default function ApprovalsPage() {
       
       if (rejectModal.type === 'leave') setLeaves(prev => prev.filter(item => item.id !== rejectModal.id));
       else if (rejectModal.type === 'permission') setPermissions(prev => prev.filter(item => item.id !== rejectModal.id));
+      else if (rejectModal.type === 'absence') setAbsences(prev => prev.filter(item => item.id !== rejectModal.id));
+      else if (rejectModal.type === 'penalty') setpenalty(prev => prev.filter(item => item.id !== rejectModal.id));
       else setAssignments(prev => prev.filter(item => item.id !== rejectModal.id));
 
       setRejectModal({ show: false, type: '', id: '', reason: '' });
@@ -176,7 +202,103 @@ export default function ApprovalsPage() {
         ) : (
           <div className="space-y-8">
             
-            {/* 🔴 قسم التكاليف الإضافية المحدث */}
+            {/* 🔴 قسم طلبات الجزاءات المعلقة (الجديد) */}
+            <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border-t-4 border-rose-900">
+              <h2 className="text-lg font-black text-[var(--color-navy-800)] mb-6 flex items-center gap-2"><Gavel className="text-rose-900"/> طلبات الجزاءات المعلقة ({penalty.length})</h2>
+              
+              {penalty.length === 0 ? (
+                <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                  <CheckCircle2 className="mx-auto text-gray-300 mb-2" size={40}/>
+                  <p className="font-bold text-gray-400 text-sm">لا توجد طلبات جزاءات معلقة.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {penalty.map(req => (
+                    <div key={req.id} className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition bg-rose-50 flex flex-col">
+                      <div className="flex justify-between items-start mb-3 border-b border-rose-200 pb-3">
+                        <div>
+                          <div className="font-black text-rose-900">{req.employees?.name}</div>
+                          <div className="text-xs font-bold text-gray-500">{req.employees?.job_title} - {req.employees?.departments?.name}</div>
+                        </div>
+                        <span className="bg-rose-900 text-white px-2 py-1 rounded text-xs font-black">{req.date_of_penalty}</span>
+                      </div>
+                      
+                      <div className="mb-4">
+                        <div className="text-xs font-bold text-gray-500 mb-1">نوع المخالفة:</div>
+                        <div className="text-sm font-black text-[var(--color-navy-900)] mb-2 bg-white border p-2 rounded">{req.type_of_penalty}</div>
+                        
+                        <div className="text-xs font-bold text-gray-500 mb-1">الجزاء المقترح:</div>
+                        <div className="text-sm font-bold text-rose-700 bg-white border border-rose-100 p-2 rounded">{req.penalty_decision}</div>
+                        
+                        <div className="text-xs font-bold text-gray-500 mt-2">الإدارة الطالبة للجزاء: <span className="text-[var(--color-navy-800)]">{req.req_dept?.name || '-'}</span></div>
+                      </div>
+
+                      <div className="flex gap-2 pt-2 mt-auto border-t border-rose-200">
+                        <button onClick={() => handleApprove('penalty', req.id)} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-sm font-black flex items-center justify-center gap-1 transition shadow-sm"><CheckCircle size={16}/> اعتماد</button>
+                        <button onClick={() => setRejectModal({ show: true, type: 'penalty', id: req.id, reason: '' })} className="flex-1 bg-white border border-rose-300 text-rose-600 hover:bg-rose-100 py-2 rounded-lg text-sm font-black flex items-center justify-center gap-1 transition"><XCircle size={16}/> رفض</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* قسم كشوف الغياب المعلقة */}
+            <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border-t-4 border-rose-500">
+              <h2 className="text-lg font-black text-[var(--color-navy-800)] mb-6 flex items-center gap-2"><UserX className="text-rose-500"/> كشوف الغياب المعلقة ({absences.length})</h2>
+              
+              {absences.length === 0 ? (
+                <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                  <CheckCircle2 className="mx-auto text-gray-300 mb-2" size={40}/>
+                  <p className="font-bold text-gray-400 text-sm">لا توجد كشوف غياب معلقة.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {absences.map(req => (
+                    <div key={req.id} className="border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition bg-rose-50/30 flex flex-col">
+                      <div className="flex justify-between items-start mb-3 border-b border-rose-100 pb-3">
+                        <div>
+                          <div className="font-black text-[var(--color-navy-800)]">قسم: {req.departments?.name}</div>
+                          <div className="text-xs font-bold text-gray-500">{new Date(req.date).toLocaleDateString('en-GB')}</div>
+                        </div>
+                        <span className="bg-rose-100 text-rose-800 px-2 py-1 rounded text-xs font-black">{req.absence_employees?.length || 0} غياب</span>
+                      </div>
+                      
+                      <div className="flex-1 bg-white p-2 rounded-lg border border-rose-50 mb-4 max-h-40 overflow-y-auto">
+                        <table className="w-full text-right text-xs">
+                          <thead className="text-rose-800 border-b">
+                            <tr>
+                              <th className="pb-1 text-right">الموظف</th>
+                              <th className="pb-1 text-center">الشركة</th>
+                              <th className="pb-1 text-center">السبب</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {req.absence_employees?.map((emp: any, i: number) => {
+                              const empData = Array.isArray(emp.employees) ? emp.employees[0] : emp.employees;
+                              return (
+                                <tr key={i} className="border-b last:border-0 border-rose-50">
+                                  <td className="py-1.5 font-bold text-gray-700 truncate max-w-[120px]" title={empData?.name}>{empData?.name || emp.emp_number}</td>
+                                  <td className="py-1.5 text-center text-gray-500">{empData?.companies?.name === 'Energya' || empData?.companies?.name === 'انيرجيا' ? 'إنرجيا' : empData?.companies?.name === 'Jawhara' || empData?.companies?.name === 'جواهر' ? 'جواهر' : 'مقاول'}</td>
+                                  <td className="py-1.5 text-center font-bold text-rose-600 truncate max-w-[80px]" title={emp.reason}>{emp.reason}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="flex gap-2 pt-2 mt-auto">
+                        <button onClick={() => handleApprove('absence', req.id)} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-sm font-black flex items-center justify-center gap-1 transition shadow-sm"><CheckCircle size={16}/> اعتماد</button>
+                        <button onClick={() => setRejectModal({ show: true, type: 'absence', id: req.id, reason: '' })} className="flex-1 bg-rose-50 text-rose-600 hover:bg-rose-100 py-2 rounded-lg text-sm font-black flex items-center justify-center gap-1 transition"><XCircle size={16}/> رفض</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* قسم التكليفات الإضافية المحدث */}
             <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border-t-4 border-indigo-500">
               <h2 className="text-lg font-black text-[var(--color-navy-800)] mb-6 flex items-center gap-2"><Users className="text-indigo-500"/> تكليفات الإضافي المعلقة ({assignments.length})</h2>
               
@@ -197,7 +319,6 @@ export default function ApprovalsPage() {
                         <span className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-xs font-black">{req.ot_assignment_employees?.length || 0} موظفين</span>
                       </div>
                       
-                      {/* جدول الموظفين للمدير (تم تحديث حساب الساعات بداخله) */}
                       <div className="flex-1 bg-white p-2 rounded-lg border border-indigo-50 mb-4 max-h-40 overflow-y-auto">
                         <table className="w-full text-right text-xs">
                           <thead className="text-indigo-800 border-b">
@@ -214,8 +335,6 @@ export default function ApprovalsPage() {
                               const shiftName = emp.shift_snapshot || empData?.shifts?.name || '';
                               const isNight = checkIsNightShift(shiftName);
                               const actualEnd = emp.ot_end_time?.substring(0, 5) || (isNight ? req.night_end_time : req.day_end_time)?.substring(0, 5) || '';
-                              
-                              // 🔴 حساب الساعات بالطريقة الصحيحة
                               const hours = calculateOTHours(isNight, actualEnd);
 
                               return (
@@ -241,7 +360,7 @@ export default function ApprovalsPage() {
               )}
             </div>
 
-            {/* قسم الأجازات المعلقة */}
+            {/* قسم الإجازات المعلقة */}
             <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border-t-4 border-blue-500">
               <h2 className="text-lg font-black text-[var(--color-navy-800)] mb-6 flex items-center gap-2"><CalendarDays className="text-blue-500"/> طلبات الإجازة المعلقة ({leaves.length})</h2>
               {leaves.length === 0 ? (

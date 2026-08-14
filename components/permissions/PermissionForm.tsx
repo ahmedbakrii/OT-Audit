@@ -37,151 +37,239 @@ export default function PermissionForm({
     <div className="permission-page">
       <div className="permission-paper">
 
+        {/* =====================================================
+            HEADER
+        ===================================================== */}
+
         <div className="permission-header">
 
-          <div className="company-box">
-            <div className="company-logo">
-              energya
-            </div>
+          {/* Company Logo */}
+          <div className="header-company">
 
-            <div className="company-ar">
-              انيرجيا
-            </div>
-
-            <div className="company-sub">
-              شركة هشام هلال السويدي وشركاه للصناعات الحديدية
-            </div>
-
-            <div className="company-en">
-              Hisham Helal El Sewedy & Partners For Steel Industries Co.
+            <div className="energya-row">
+              <img
+                src="/energya-logo.png"
+                alt="Energya Steel Solutions"
+                className="energya-logo-image"
+              />
             </div>
           </div>
 
-          <div className="title-box">
-            <div className="form-title">
+
+          {/* Main Title */}
+          <div className="header-title">
+
+            <div className="main-title">
               Exit / Delay Permission
             </div>
 
-            <div className="form-title-ar">
-              تصريح خروج / تأخير
+            <div className="arabic-title">
+              (تصريح خروج / تأخير)
             </div>
+
           </div>
 
-          <div className="form-number-box">
-            <div>Form No:</div>
+
+          {/* Form Number */}
+          <div className="header-form">
+
+            <div className="form-label">
+              Form No:
+            </div>
+
             <div className="form-number">
               HHE-HR-FO-026
             </div>
-            <div>Issue A/1</div>
+
+            <div className="form-issue">
+              Issue A/1
+            </div>
+
           </div>
 
         </div>
 
-        <div className="permission-body">
 
-          <div className="info-grid">
+        {/* =====================================================
+            FORM BODY
+        ===================================================== */}
 
-            <div className="field">
-              <div className="field-label">
-                Date <span>(التاريخ)</span>
-              </div>
+        <div className="permission-content">
 
-              <div className="field-value">
+
+          {/* ===================================================
+              DATE / EMPLOYEE ID
+          =================================================== */}
+
+          <div className="form-row row-1">
+
+            <div className="left-field">
+
+              <span className="label">
+                Date <span className="arabic">(التاريخ)</span>:
+              </span>
+
+              <span className="value">
                 {value(data.date)}
-              </div>
+              </span>
+
             </div>
 
-            <div className="field">
-              <div className="field-label right">
-                Employee ID <span>(رقم الموظف)</span>
-              </div>
 
-              <div className="field-value right">
+            <div className="right-field">
+
+              <span className="label">
+                Employee ID <span className="arabic">(رقم الموظف)</span>:
+              </span>
+
+              <span className="value">
                 {value(data.employeeId)}
-              </div>
-            </div>
+              </span>
 
-            <div className="field">
-              <div className="field-label">
-                Name <span>(الاسم)</span>
-              </div>
-
-              <div className="field-value">
-                {value(data.name)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label right">
-                Title <span>(الوظيفة)</span>
-              </div>
-
-              <div className="field-value right">
-                {value(data.title)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label">
-                Section <span>(القسم)</span>
-              </div>
-
-              <div className="field-value">
-                {value(data.section)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label right">
-                Department <span>(الإدارة)</span>
-              </div>
-
-              <div className="field-value right">
-                {value(data.department)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label">
-                Time of Exit <span>(وقت الخروج)</span>
-              </div>
-
-              <div className="field-value">
-                {value(data.timeOfExit)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label right">
-                Time of Entry <span>(وقت الدخول)</span>
-              </div>
-
-              <div className="field-value right">
-                {value(data.timeOfEntry)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label">
-                Period of Exit <span>(مدة الإذن)</span>
-              </div>
-
-              <div className="field-value">
-                {value(data.periodOfExit)}
-              </div>
-            </div>
-
-            <div className="field">
-              <div className="field-label right">
-                Reason for Permission <span>(سبب الإذن)</span>
-              </div>
-
-              <div className="field-value right">
-                {value(data.reason)}
-              </div>
             </div>
 
           </div>
+
+
+          {/* ===================================================
+              NAME / TITLE
+          =================================================== */}
+
+          <div className="form-row row-2">
+
+            <div className="left-field">
+
+              <span className="label">
+                Name <span className="arabic">(الاسم)</span>:
+              </span>
+
+              <span className="value name-value">
+                {value(data.name)}
+              </span>
+
+            </div>
+
+
+            <div className="right-field">
+
+              <span className="label">
+                Title <span className="arabic">(الوظيفة)</span>:
+              </span>
+
+              <span className="value">
+                {value(data.title)}
+              </span>
+
+            </div>
+
+          </div>
+
+
+          {/* ===================================================
+              SECTION / DEPARTMENT
+          =================================================== */}
+
+          <div className="form-row row-3">
+
+            <div className="left-field">
+
+              <span className="label">
+                Section <span className="arabic">(القسم)</span>:
+              </span>
+
+              <span className="value section-value">
+                {value(data.section)}
+              </span>
+
+            </div>
+
+
+            <div className="right-field">
+
+              <span className="label">
+                Department <span className="arabic">(الإدارة)</span>:
+              </span>
+
+              <span className="value">
+                {value(data.department)}
+              </span>
+
+            </div>
+
+          </div>
+
+
+          {/* ===================================================
+              EXIT / ENTRY TIME
+          =================================================== */}
+
+          <div className="form-row row-4">
+
+            <div className="left-field">
+
+              <span className="label">
+                Time of Exit <span className="arabic">(وقت الخروج)</span>:
+              </span>
+
+              <span className="value">
+                {value(data.timeOfExit)}
+              </span>
+
+            </div>
+
+
+            <div className="right-field">
+
+              <span className="label">
+                Time of Entry <span className="arabic">(وقت الدخول)</span>:
+              </span>
+
+              <span className="value">
+                {value(data.timeOfEntry)}
+              </span>
+
+            </div>
+
+          </div>
+
+
+          {/* ===================================================
+              PERIOD / REASON
+          =================================================== */}
+
+          <div className="form-row row-5">
+
+            <div className="left-field">
+
+              <span className="label">
+                Period of Exit <span className="arabic">(مدة الإذن)</span>:
+              </span>
+
+              <span className="value">
+                {value(data.periodOfExit)}
+              </span>
+
+            </div>
+
+
+            <div className="right-field">
+
+              <span className="label">
+                Reason for Permission <span className="arabic">(سبب الإذن)</span>:
+              </span>
+
+              <span className="value">
+                {value(data.reason)}
+              </span>
+
+            </div>
+
+          </div>
+
+
+          {/* ===================================================
+              SPECIAL CIRCUMSTANCES
+          =================================================== */}
 
           <div className="special-section">
 
@@ -189,52 +277,73 @@ export default function PermissionForm({
               ظروف خاصة
             </div>
 
-            <div className="special-lines">
-              <div>
-                {value(data.specialCircumstances)}
-              </div>
-
-              <div></div>
+            <div className="special-line">
+              {value(data.specialCircumstances)}
             </div>
+
+            <div className="special-line"></div>
 
           </div>
 
+
+          {/* ===================================================
+              APPROVALS
+          =================================================== */}
+
           <div className="approval-section">
 
-            <div className="approval-box">
 
-              <div className="approval-title">
+            {/* Dept. Head */}
+
+            <div className="approval-column">
+
+              <div className="approval-heading">
                 Dept. Head
-                <span>(الرئيس المباشر)</span>
               </div>
 
-              <div className="signature-line">
+              <div className="approval-arabic">
+                (الرئيس المباشر)
+              </div>
+
+              <div className="signature">
                 {value(data.deptHead)}
               </div>
 
             </div>
 
-            <div className="approval-box">
 
-              <div className="approval-title">
-                Dept. Manager
-                <span>(مدير الإدارة)</span>
+            {/* Dept. Manager */}
+
+            <div className="approval-column">
+
+              <div className="approval-heading">
+                Dept Manager
               </div>
 
-              <div className="signature-line">
+              <div className="approval-arabic">
+                (مدير الإدارة)
+              </div>
+
+              <div className="signature">
                 {value(data.deptManager)}
               </div>
 
             </div>
 
-            <div className="approval-box">
 
-              <div className="approval-title">
+            {/* HR Manager */}
+
+            <div className="approval-column">
+
+              <div className="approval-heading">
                 HR Manager
-                <span>(إدارة الموارد البشرية)</span>
               </div>
 
-              <div className="signature-line">
+              <div className="approval-arabic">
+                (إدارة الموارد البشرية)
+              </div>
+
+              <div className="signature">
                 {value(data.hrManager)}
               </div>
 
