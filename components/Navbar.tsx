@@ -144,7 +144,7 @@ export default function Navbar() {
         realtimeChannel = supabase.channel('realtime_notifications')
           .on('postgres_changes', channelConfig, (payload) => {
               
-              // 🔴 الحل: إجبار TypeScript على قبول البيانات كـ (any)
+              // 🔴 إجبار TypeScript على قبول البيانات كـ (any)
               const newNotif = payload.new as any;
 
               // 🎵 نظام الصوت الآمن
@@ -171,11 +171,19 @@ export default function Navbar() {
               playSound();
               setNotifications(prev => [newNotif, ...prev]);
 
+              // 🔴 التعديل الجديد: عرض الإشعار عبر الـ Service Worker وحل خطأ الـ Typescript
               if (Notification.permission === 'granted') {
-                new Notification(newNotif.title, {
-                  body: newNotif.body,
-                  icon: '/logo-name.png'
-                });
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.ready.then((registration) => {
+                    registration.showNotification(newNotif.title, {
+                      body: newNotif.body,
+                      icon: '/logo-name.png',
+                      badge: '/logo-name.png',
+                      vibrate: [200, 100, 200, 100, 200], // نمط اهتزاز
+                      data: { url: newNotif.target_url || '/' }
+                    } as any);
+                  });
+                }
               }
             }
           )
@@ -248,7 +256,7 @@ export default function Navbar() {
         { name: 'الأجازات', description: 'إدارة طلبات الأجازات', href: '/leaves', icon: CalendarDays, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الأذونات', description: 'إدارة طلبات الأذونات', href: '/permissions', icon: Clock, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
         { name: 'الغياب', description: 'إدارة كشوف الغياب', href: '/absences', icon: UserX, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
-        { name: 'الجزاءات', description: 'طلبات توقيع الجزاءات', href: '/penalty', icon: Scale, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
+        { name: 'الجزاءات', description: 'طلبات توقيع الجزاءات', href: '/penalties', icon: Scale, roles: ['ADMIN', 'MANAGER', 'DATA_ENTRY'] },
       ],
     },
     {
