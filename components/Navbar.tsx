@@ -6,29 +6,23 @@ import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 import {
-  LogOut,
-  Users,
-  Fingerprint,
-  ClipboardList,
-  ShieldCheck,
-  Menu,
-  X,
-  User,
-  ChevronDown,
-  Settings,
-  FileClock,
-  Bell,
-  CheckCircle2,
-  ArrowLeft,
-  CalendarDays,
-  Clock,
-  CheckCircle,
-  Workflow,
-  UsersRound,
-  ChartNoAxesCombined,
-  UserX,
-  Scale
+  LogOut, Users, Fingerprint, ClipboardList, ShieldCheck, Menu, X, User,
+  ChevronDown, Settings, FileClock, Bell, CheckCircle2, ArrowLeft,
+  CalendarDays, Clock, CheckCircle, Workflow, UsersRound, ChartNoAxesCombined,
+  UserX, Scale
 } from 'lucide-react';
+
+// دالة مساعدة لتشفير مفاتيح الـ Push Notification
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -70,8 +64,53 @@ export default function Navbar() {
       const parsedUser = JSON.parse(userStr);
       setUser(parsedUser);
       fetchUserDataAndNotifications(parsedUser.id, parsedUser.role);
+      
+      // 🔴 تفعيل تسجيل الموبايل/المتصفح في إشعارات الـ Push
+      if (parsedUser.role !== 'DATA_ENTRY') {
+        registerPushNotifications(parsedUser.id);
+      }
     } else {
       setUser(null);
+    }
+  };
+
+  // 🔴 دالة تسجيل الموبايل في الداتابيز لتلقي الإشعارات وهو مغلق
+  const registerPushNotifications = async (userId: string) => {
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        const permission = await Notification.requestPermission();
+        
+        if (permission === 'granted') {
+          const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+          if (!publicVapidKey) return;
+
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicVapidKey)
+          });
+
+          const subData = JSON.parse(JSON.stringify(subscription));
+
+          // التأكد إن الموبايل ده متسجلش قبل كده
+          const { data: existing } = await supabase
+            .from('push_subscriptions')
+            .select('id')
+            .eq('endpoint', subData.endpoint)
+            .single();
+
+          if (!existing) {
+            await supabase.from('push_subscriptions').insert([{
+              user_id: userId,
+              endpoint: subData.endpoint,
+              p256dh: subData.keys.p256dh,
+              auth: subData.keys.auth
+            }]);
+          }
+        }
+      } catch (error) {
+        console.error('Push Registration Error:', error);
+      }
     }
   };
 
@@ -85,36 +124,31 @@ export default function Navbar() {
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('user_login_changed', handleStorageChange);
 
-    // ==========================================
-    // 🔴 1. فتح قناة Realtime مع Supabase 
-    // ==========================================
     const userStr = localStorage.getItem('ot_user');
     let realtimeChannel: any = null;
 
     if (userStr) {
       const parsedUser = JSON.parse(userStr);
       
-      // مش هنزعج مدخل البيانات بالإشعارات
       if (parsedUser.role !== 'DATA_ENTRY') {
+        // 🔴 إصلاح الفلتر عشان يشتغل مع الأدمن والمدير بدون أخطاء
+        const channelConfig: any = { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'notifications' 
+        };
+        
+        if (parsedUser.role === 'MANAGER' && parsedUser.department_id) {
+          channelConfig.filter = `department_id=eq.${parsedUser.department_id}`;
+        }
+
         realtimeChannel = supabase.channel('realtime_notifications')
-          .on(
-            'postgres_changes',
-            { 
-              event: 'INSERT', 
-              schema: 'public', 
-              table: 'notifications',
-              // المدير يشوف إشعارات إدارته بس، الأدمن يشوف كل حاجة
-              filter: parsedUser.role === 'MANAGER' ? `department_id=eq.${parsedUser.department_id}` : undefined
-            },
-            (payload) => {
-              // ==========================================
-              // 🎵 2. نظام الصوت الآمن (Fallback System)
-              // ==========================================
+          .on('postgres_changes', channelConfig, (payload) => {
+              // 🎵 نظام الصوت الآمن
               const playSound = async () => {
                 const title = payload.new.title || '';
-                let soundFile = '/sound-default.mp3'; // الأساسي اللي لازم يكون موجود
+                let soundFile = '/sound-default.mp3'; 
 
-                // تحديد الصوت بناءً على الكلمة
                 if (title.includes('غياب')) soundFile = '/sound-absence.mp3';
                 else if (title.includes('جزاء')) soundFile = '/sound-penalty.mp3';
                 else if (title.includes('تكليف') || title.includes('إضافي')) soundFile = '/sound-assignment.mp3';
@@ -124,27 +158,20 @@ export default function Navbar() {
                   const audio = new Audio(soundFile);
                   await audio.play();
                 } catch (e) {
-                  // لو الملف المخصص مش موجود أو حصل أي خطأ، هنشغل الأساسي
-                  console.log(`Failed to play ${soundFile}, playing default sound.`);
                   try {
                     const fallbackAudio = new Audio('/sound-default.mp3');
                     await fallbackAudio.play();
-                  } catch (fallbackError) {
-                    console.log('Autoplay blocked by browser or default sound missing');
-                  }
+                  } catch (fallbackError) {}
                 }
               };
 
-              playSound(); // تشغيل الدالة
-
-              // 2. تحديث الجرس والقائمة فوراً بدون Refresh
+              playSound();
               setNotifications(prev => [payload.new, ...prev]);
 
-              // 3. إظهار الإشعار بره المتصفح (Browser/OS Notification)
               if (Notification.permission === 'granted') {
                 new Notification(payload.new.title, {
                   body: payload.new.body,
-                  icon: '/logo-name.png' // لوجو السيستم
+                  icon: '/logo-name.png'
                 });
               }
             }
@@ -153,7 +180,6 @@ export default function Navbar() {
       }
     }
 
-    // طلب صلاحية الإشعارات الخارجية أول مرة يفتح فيها السيستم
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
@@ -162,11 +188,7 @@ export default function Navbar() {
       window.removeEventListener('new_notification', handleNewNotif);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('user_login_changed', handleStorageChange);
-      
-      // إغلاق الاتصال لما اليوزر يخرج عشان منستهلكش السيرفر
-      if (realtimeChannel) {
-        supabase.removeChannel(realtimeChannel);
-      }
+      if (realtimeChannel) supabase.removeChannel(realtimeChannel);
     };
   }, []);
 
@@ -191,7 +213,7 @@ export default function Navbar() {
         }
       }
     } catch (error) {
-      console.error('Error fetching user data or notifications', error);
+      console.error('Error fetching user data', error);
       setDbUserName(user?.name || 'مستخدم');
     }
   }
