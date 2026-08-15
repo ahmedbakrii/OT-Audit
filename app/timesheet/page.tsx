@@ -2,10 +2,9 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CheckCircle2, AlertCircle, FileSpreadsheet, Building2, Download, CheckSquare } from 'lucide-react';
+import { CheckCircle2, AlertCircle, FileSpreadsheet, Building2, Download, CheckSquare, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useRouter, useSearchParams } from 'next/navigation';
-import ForbiddenOverlay from '@/components/ForbiddenOverlay';
 
 function TimesheetContent() {
   const router = useRouter();
@@ -26,6 +25,9 @@ function TimesheetContent() {
   const [genYear, setGenYear] = useState<number>(paramYear);
 
   const [isExporting, setIsExporting] = useState(false);
+
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictDetails, setConflictDetails] = useState<{name: string, empNumber: string, dates: string[]}[]>([]);
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -59,13 +61,66 @@ function TimesheetContent() {
     setIsExporting(true);
 
     try {
+      let conflictQuery = supabase.from('ot_calculations')
+        .select(`date, emp_number, employees!inner(name, department_id, companies(name))`)
+        .eq('month', genMonth)
+        .eq('year', genYear)
+        .eq('status', 'CONFLICT');
+
+      if (userRole === 'MANAGER' && userDeptId) {
+        conflictQuery = conflictQuery.eq('employees.department_id', userDeptId);
+      }
+
+      const { data: conflictsData, error: conflictErr } = await conflictQuery;
+      if (conflictErr) throw conflictErr;
+
+      // 🔴 الضربة القاضية لـ TypeScript عشان يتجاهل الأخطاء العبيطة دي
+      const safeConflictsData = (conflictsData as any[]) || [];
+      
+      const exactCompanyConflicts = safeConflictsData.filter((c: any) => {
+        const empInfo = Array.isArray(c.employees) ? c.employees[0] : c.employees;
+        return empInfo?.companies?.name === filterCompany;
+      });
+
+      if (exactCompanyConflicts.length > 0) {
+        const conflictsMap = new Map();
+        exactCompanyConflicts.forEach((c: any) => {
+           if (!conflictsMap.has(c.emp_number)) {
+             const empInfo = Array.isArray(c.employees) ? c.employees[0] : c.employees;
+             conflictsMap.set(c.emp_number, { name: empInfo?.name, empNumber: c.emp_number, dates: [] });
+           }
+           const d = new Date(c.date);
+           conflictsMap.get(c.emp_number).dates.push(`${d.getDate()} ${monthsAr[d.getMonth()]}`);
+        });
+
+        const groupedConflicts = Array.from(conflictsMap.values());
+        setConflictDetails(groupedConflicts);
+        setShowConflictModal(true);
+        setIsExporting(false);
+
+        if (userRole === 'DATA_ENTRY') {
+            const notifTitle = '⚠️ تعارضات تعيق إصدار التايم شيت';
+            const empNamesString = groupedConflicts.map(c => c.name).join('، ');
+            const notifBody = `حاول مدخل البيانات إصدار التايم شيت لشركة ${filterCompany} ولكن تم إيقافه لوجود تعارضات معلقة. يرجى المراجعة والاعتماد للموظفين: (${empNamesString}).`;
+
+            await supabase.from('notifications').insert([{
+            title: notifTitle,
+            body: notifBody,
+            department_id: userDeptId, 
+            target_url: `/audit?status=CONFLICT`
+            }]);
+
+            window.dispatchEvent(new Event('new_notification'));
+        }
+        return; 
+      }
+
       let query = supabase.from('ot_calculations')
         .select(`emp_number, date, final_approved_hours, employees!inner(name, job_title, iqama_number, department_id, departments(name), companies(name))`)
         .eq('month', genMonth)
         .eq('year', genYear)
-        .eq('employees.companies.name', filterCompany)
         .in('status', ['MATCHED', 'RESOLVED'])
-        .gt('final_approved_hours', 0);
+        .gt('final_approved_hours', 0); 
 
       if (userRole === 'MANAGER' && userDeptId) {
         query = query.eq('employees.department_id', userDeptId);
@@ -74,7 +129,15 @@ function TimesheetContent() {
       const { data, error } = await query;
       if (error) throw error;
 
-      if (!data || data.length === 0) {
+      // 🔴 الضربة القاضية التانية لـ TypeScript هنا كمان
+      const safeData = (data as any[]) || [];
+
+      const exactCompanyData = safeData.filter((r: any) => {
+        const empInfo = Array.isArray(r.employees) ? r.employees[0] : r.employees;
+        return empInfo?.companies?.name === filterCompany;
+      });
+
+      if (!exactCompanyData || exactCompanyData.length === 0) {
         showToast(`لا توجد ساعات عمل معتمدة لشركة ${filterCompany} في هذا الشهر.`, 'error');
         setIsExporting(false); return;
       }
@@ -88,9 +151,9 @@ function TimesheetContent() {
       }
 
       const empMap = new Map();
-      data.forEach((record: any) => {
+      exactCompanyData.forEach((record: any) => {
          const empNum = record.emp_number;
-         const dayOfMonth = new Date(record.date).getDate();
+         const dayOfMonth = new Date(record.date + 'T12:00:00Z').getDate();
          
          if(!empMap.has(empNum)) {
              const empInfo = Array.isArray(record.employees) ? record.employees[0] : record.employees;
@@ -115,10 +178,10 @@ function TimesheetContent() {
       let headers: any[] = [];
       let baseColsCount = 0;
 
-      if (filterCompany === 'Jawhara') {
+      if (filterCompany === 'Jawhara' || filterCompany === 'جواهر') {
         headers = ['م', 'رقم الموظف', 'الاسم', 'رقم الإقامة', 'المسمى الوظيفي', 'الورشة'];
         baseColsCount = headers.length;
-      } else if (filterCompany === 'Contractor') {
+      } else if (filterCompany === 'Contractor' || filterCompany.includes('مقاول')) {
         headers = ['م', 'الاسم', 'الإقامة', 'المؤسسة', 'الرقم الوظيفي', 'الوظيفة'];
         baseColsCount = headers.length;
       } else {
@@ -127,7 +190,7 @@ function TimesheetContent() {
       }
 
       for (let i = 1; i <= daysInMonth; i++) headers.push(i);
-      const totalColName = filterCompany === 'Energia' ? 'TOTAL' : 'الإجمالي';
+      const totalColName = filterCompany === 'Energia' || filterCompany.includes('انيرجيا') ? 'TOTAL' : 'الإجمالي';
       headers.push(totalColName);
       
       exportDataAOA.push(headers);
@@ -137,16 +200,17 @@ function TimesheetContent() {
       sortedEmps.forEach((emp: any, index: number) => {
         let row: any[] = [];
         
-        if (filterCompany === 'Jawhara') {
+        if (filterCompany === 'Jawhara' || filterCompany === 'جواهر') {
           row = [index + 1, emp.empNumber, emp.name, emp.iqama, emp.jobTitle, emp.workshop];
-        } else if (filterCompany === 'Contractor') {
+        } else if (filterCompany === 'Contractor' || filterCompany.includes('مقاول')) {
           row = [index + 1, emp.name, emp.iqama, emp.company, emp.empNumber, emp.jobTitle];
         } else {
           row = [index + 1, emp.name, emp.empNumber];
         }
 
         for (let d = 1; d <= daysInMonth; d++) {
-          row.push(emp.days[d] || ''); 
+          const val = emp.days[d];
+          row.push(val !== undefined ? val : 0); 
         }
         row.push(emp.totalHours);
         
@@ -182,7 +246,7 @@ function TimesheetContent() {
       const fileName = `${filterCompany}_Timesheet_${genYear}_${genMonth.toString().padStart(2, '0')}.xlsx`;
       XLSX.writeFile(wb, fileName);
 
-      const notifTitle = 'تم إصدار تايم شيت جديد';
+      const notifTitle = '✅ تم إصدار تايم شيت جديد';
       const notifBody = `تم إصدار التايم شيت النهائي لشركة ${filterCompany} عن شهر ${monthsAr[genMonth - 1]} ${genYear}.\nبواسطة: ${userName}`;
 
       const todayStart = new Date();
@@ -215,13 +279,7 @@ function TimesheetContent() {
   return (
     <div className="relative w-full min-h-screen">
       
-      {/* 🔴 شاشة الحماية والـ Blur لمدخل البيانات */}
-      {userRole === 'DATA_ENTRY' && (
-        <ForbiddenOverlay userDeptId={userDeptId} />
-      )}
-
-      {/* 🔴 المحتوى محمي بالـ Blur */}
-      <div className={`flex flex-col space-y-6 pb-10 transition-all duration-500 ${userRole === 'DATA_ENTRY' ? 'blur-[12px] opacity-30 pointer-events-none select-none grayscale-[50%]' : 'animate-in fade-in'}`}>
+      <div className="flex flex-col space-y-6 pb-10 animate-in fade-in">
         
         {toast.show && (
           <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 flex items-center gap-3 px-6 py-3 rounded-lg shadow-xl z-50 transition-all duration-300 ${toast.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
@@ -236,7 +294,7 @@ function TimesheetContent() {
             إصدار التايم شيت النهائي
           </h1>
           <p className="text-gray-500 text-base mb-8">
-            يتم تجميع الساعات المعتمدة فقط من شاشة (إدارة التعارضات) واستخراج شيت إكسل جاهز للدفع، مفصول لكل شركة على حدة.
+            يتم تجميع الساعات المعتمدة فقط من شاشة (إدارة المطابقة) واستخراج شيت إكسل جاهز للصرف، مفصول لكل شركة على حدة.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-xl border border-gray-200">
@@ -264,7 +322,7 @@ function TimesheetContent() {
           <div className="mt-8 flex justify-end">
             <button 
               onClick={exportFinalTimesheet} 
-              disabled={isExporting || !filterCompany || userRole === 'DATA_ENTRY'} 
+              disabled={isExporting || !filterCompany} 
               className="flex items-center gap-3 bg-green-600 text-white px-8 py-4 rounded-xl hover:bg-green-700 transition disabled:opacity-50 font-black shadow-lg text-lg"
             >
               <Download size={24} />
@@ -273,6 +331,60 @@ function TimesheetContent() {
           </div>
         </div>
       </div>
+
+      {showConflictModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
+            <div className="bg-red-50 p-6 border-b border-red-100 flex justify-between items-start">
+              <div>
+                <h2 className="text-xl font-black text-red-700 flex items-center gap-2">
+                  <AlertCircle size={24} /> إجراء محظور: تعارضات معلقة بـ {filterCompany}!
+                </h2>
+                {userRole === 'DATA_ENTRY' ? (
+                  <p className="text-sm text-red-600 mt-2 font-bold leading-relaxed">
+                    لا يمكن إصدار التايم شيت لوجود أيام بها مشاكل ولم تُعتمد من قبل المدير. <br/>
+                    تم إرسال إشعار للمدير المختص للمراجعة والاعتماد.
+                  </p>
+                ) : (
+                  <p className="text-sm text-red-600 mt-2 font-bold leading-relaxed">
+                    عفواً، لا يمكن إصدار التايم شيت النهائي لوجود أيام بها مشاكل ولم تُعتمد بعد. <br/>
+                    يمكنك الذهاب للوحة المطابقة لحلها الآن.
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setShowConflictModal(false)} className="text-gray-400 hover:text-red-600 bg-white p-2 rounded-full shadow-sm"><X size={20} /></button>
+            </div>
+            
+            <div className="p-6 max-h-[50vh] overflow-y-auto bg-gray-50">
+              <h3 className="text-gray-800 font-bold mb-4 flex items-center gap-2">الموظفين المطلوب مراجعتهم في {filterCompany}:</h3>
+              <div className="grid gap-3">
+                {conflictDetails.map((emp, idx) => (
+                  <div key={idx} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-black text-[var(--color-navy-800)]">{emp.name}</h4>
+                      <p className="text-xs font-bold text-gray-500 mt-1">الرقم الوظيفي: {emp.empNumber}</p>
+                    </div>
+                    <div className="bg-red-50 text-red-700 px-3 py-2 rounded-lg text-xs font-bold w-full md:w-auto text-left leading-relaxed">
+                      أيام التعارض: {emp.dates.join('، ')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6 border-t bg-white flex justify-end gap-3">
+              <button onClick={() => setShowConflictModal(false)} className="px-6 py-2.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg font-bold transition">إغلاق وتفهم</button>
+              
+              {userRole !== 'DATA_ENTRY' && (
+                <button onClick={() => router.push('/audit?status=CONFLICT')} className="px-6 py-2.5 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold transition shadow-md">
+                  الذهاب للوحة المطابقة لحل المشاكل
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
