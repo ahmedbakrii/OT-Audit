@@ -177,8 +177,8 @@ export default function Navbar() {
                   navigator.serviceWorker.ready.then((registration) => {
                     registration.showNotification(newNotif.title, {
                       body: newNotif.body,
-                      icon: '/logo-name.png',
-                      badge: '/logo-name.png',
+                      icon: '/ logo.png',
+                      badge: '/ logo.png',
                       vibrate: [200, 100, 200, 100, 200], // نمط اهتزاز
                       data: { url: newNotif.target_url || '/' }
                     } as any);

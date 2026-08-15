@@ -32,13 +32,12 @@ export default function AttendancePage() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewList, setPreviewList] = useState<{ fileName: string, empNumber: string, empName: string, records: any[], status: string, dateRange: string }[]>([]);
   
-  // 🔴 الغرباء مع حالتهم الخاصة بكل واحد عشان نقدر نعدلهم في الجدول
   const [unknownEmployees, setUnknownEmployees] = useState<{ empNumber: string, empName: string, jobTitle: string, companyId: string, shiftId: string, isSaving: boolean }[]>([]);
   
   const [viewMode, setViewMode] = useState<'IMPORTS' | 'IMPORT_DETAILS' | 'CONSOLIDATED'>('IMPORTS');
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
   const [importDetails, setImportDetails] = useState<any[]>([]);
-  const [selectedEmpRecords, setSelectedEmpRecords] = useState<{ empName: string, empNumber: string, records: any[], totalSheetDays: number } | null>(null);
+  const [selectedEmpRecords, setSelectedEmpRecords] = useState<{ empName: string, empNumber: string, shiftName: string, records: any[], totalSheetDays: number } | null>(null);
   
   const [consolidatedMonth, setConsolidatedMonth] = useState(() => {
     const d = new Date();
@@ -109,7 +108,7 @@ export default function AttendancePage() {
 
       let query = supabase
         .from('attendance_records')
-        .select(`*, employees!inner(name, department_id)`)
+        .select(`*, employees!inner(name, department_id, shifts(name))`)
         .gte('date', startDate)
         .lte('date', endDate);
 
@@ -121,7 +120,9 @@ export default function AttendancePage() {
       if (error) throw error;
 
       const grouped = (data || []).reduce((acc: any, curr: any) => {
-        if (!acc[curr.emp_number]) acc[curr.emp_number] = { name: curr.employees.name, records: [] };
+        if (!acc[curr.emp_number]) {
+          acc[curr.emp_number] = { name: curr.employees.name, shiftName: curr.employees.shifts?.name || 'غير محدد', records: [] };
+        }
         acc[curr.emp_number].records.push(curr);
         return acc;
       }, {});
@@ -145,7 +146,7 @@ export default function AttendancePage() {
         const actualAttendanceDays = originalRecords.length;
         const problemDays = originalRecords.filter((r:any) => (!r.first_in && r.last_out) || (r.first_in && !r.last_out)).length;
 
-        return { empNumber: empNum, empName: grouped[empNum].name, records: filledRecords, totalSheetDays, actualAttendanceDays, problemDays };
+        return { empNumber: empNum, empName: grouped[empNum].name, shiftName: grouped[empNum].shiftName, records: filledRecords, totalSheetDays, actualAttendanceDays, problemDays };
       });
 
       setImportDetails(formattedDetails);
@@ -159,7 +160,7 @@ export default function AttendancePage() {
     if (userRole !== 'ADMIN' && userRole !== 'MANAGER') return;
     try {
       setLoading(true);
-      const { data, error } = await supabase.from('attendance_records').select(`*, employees!inner(name)`).eq('import_id', importId);
+      const { data, error } = await supabase.from('attendance_records').select(`*, employees!inner(name, shifts(name))`).eq('import_id', importId);
       if (error) throw error;
 
       let globalMinDate = new Date();
@@ -172,7 +173,9 @@ export default function AttendancePage() {
       const totalSheetDays = Math.round((globalMaxDate.getTime() - globalMinDate.getTime()) / (1000 * 3600 * 24)) + 1;
 
       const grouped = (data || []).reduce((acc: any, curr: any) => {
-        if (!acc[curr.emp_number]) acc[curr.emp_number] = { name: curr.employees.name, records: [] };
+        if (!acc[curr.emp_number]) {
+          acc[curr.emp_number] = { name: curr.employees.name, shiftName: curr.employees.shifts?.name || 'غير محدد', records: [] };
+        }
         acc[curr.emp_number].records.push(curr);
         return acc;
       }, {});
@@ -193,7 +196,7 @@ export default function AttendancePage() {
         const actualAttendanceDays = originalRecords.length;
         const problemDays = originalRecords.filter((r:any) => (!r.first_in && r.last_out) || (r.first_in && !r.last_out)).length;
 
-        return { empNumber: empNum, empName: grouped[empNum].name, records: filledRecords, totalSheetDays, actualAttendanceDays, problemDays };
+        return { empNumber: empNum, empName: grouped[empNum].name, shiftName: grouped[empNum].shiftName, records: filledRecords, totalSheetDays, actualAttendanceDays, problemDays };
       });
 
       setImportDetails(formattedDetails);
@@ -227,12 +230,10 @@ export default function AttendancePage() {
           if (!row || row.length === 0) continue;
           
           const rowStr = row.map(String).join(' '); 
-          // 🔴 التعديل هنا: شبكة صيد أوسع للرقم (من 3 لـ 15 رقم) عشان يلقط الكل
           const potentialNumbers = row.filter(c => (typeof c === 'string' && /^\d{3,15}$/.test(c.trim())) || (typeof c === 'number' && c >= 100 && c < 999999999));
           const hasNameOrDept = rowStr.includes('ادارة') || rowStr.includes('قسم') || rowStr.includes('الإسم') || rowStr.includes('الاسم');
 
           if (potentialNumbers.length > 0 && hasNameOrDept) {
-            // 🔴 التعديل الأهم هنا: هنحفظ الموظف حتى لو ملحقناش ليه سجلات!
             if (currentEmpNumber) {
               const matchedEmp = dbEmployees.find(e => String(e.emp_number) === currentEmpNumber);
               let dr = '';
@@ -261,7 +262,6 @@ export default function AttendancePage() {
           }
 
           if (currentEmpNumber) {
-            // 🔴 التعديل هنا: نقبل أي فورمات تاريخ عشان ميديش Error ويطير الموظف
             let dateCell = row.find(cell => 
               cell instanceof Date || 
               (typeof cell === 'string' && cell.match(/^(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/))
@@ -302,7 +302,6 @@ export default function AttendancePage() {
           }
         }
 
-        // حفظ آخر موظف
         if (currentEmpNumber) {
           const matchedEmp = dbEmployees.find(e => String(e.emp_number) === currentEmpNumber);
           let dr = '';
@@ -335,7 +334,6 @@ export default function AttendancePage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 🔴 الإضافة الفردية السريعة من الجدول (Inline Add)
   const handleInlineSaveUnknown = async (empNumber: string) => {
     const empData = unknownEmployees.find(u => u.empNumber === empNumber);
     if (!empData) return;
@@ -361,7 +359,6 @@ export default function AttendancePage() {
       showToast(`تمت إضافة الموظف ${empData.empName} بنجاح!`, 'success');
       await fetchAllEmployees(userRole!, userDeptId);
 
-      // نقله من المجهولين للقائمة الصالحة
       setPreviewList(prev => prev.map(p => p.empNumber === empNumber ? { ...p, status: 'valid' } : p));
       setUnknownEmployees(prev => prev.filter(u => u.empNumber !== empNumber));
 
@@ -453,6 +450,34 @@ export default function AttendancePage() {
         await supabase.from('attendance_records').upsert(mergedRecords, { onConflict: 'emp_number,date' });
       }
 
+      // 🔴 إرسال الإشعار الصحيح الموحد للمنصة والموبايل
+      const title = 'سجل بصمة جديد 📋';
+      const body = `قام ${currentUserName} برفع ملف بصمة يشمل ${validFiles.length} موظف للفترة (${dateRangeStr}).`;
+      
+      // 1. الإشعار الداخلي للـ Navbar
+      await supabase.from('notifications').insert([{
+        department_id: userRole === 'MANAGER' || userRole === 'DATA_ENTRY' ? userDeptId : null,
+        title: title,
+        body: body,
+        target_url: '/attendance'
+      }]);
+
+      // 2. إشعار الموبايل عبر الـ Push API
+      try {
+        await fetch('/api/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            title: title, 
+            body: body, 
+            url: '/attendance',
+            department_id: userRole === 'MANAGER' || userRole === 'DATA_ENTRY' ? userDeptId : null
+          })
+        });
+      } catch (pushErr) {
+        console.error("Push API Error:", pushErr);
+      }
+
       setShowPreview(false); 
       showToast(`تم حفظ وتحديث ${totalRecs} سجل بنجاح!`, 'success'); 
       fetchImportsHistory();
@@ -468,17 +493,36 @@ export default function AttendancePage() {
     return new Date(isoString).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
 
-  const calculateDuration = (inIso: string | null, outIso: string | null) => {
+  const calculateDuration = (inIso: string | null, outIso: string | null, shiftName: string, dateStr: string) => {
     if (!inIso || !outIso) return null;
     let inDate = new Date(inIso);
     let outDate = new Date(outIso);
     
-    const inFraction = (inDate.getUTCHours() * 3600 + inDate.getUTCMinutes() * 60) / 86400;
-    const outFraction = (outDate.getUTCHours() * 3600 + outDate.getUTCMinutes() * 60) / 86400;
+    const isNightShift = shiftName && (shiftName.includes('مسائي') || shiftName.includes('ليل') || shiftName.toLowerCase().includes('night'));
+    const isFriday = new Date(dateStr).getDay() === 5;
 
-    let durationHours = 0;
-    if (outFraction < inFraction) durationHours = ((1 + outFraction) - inFraction) * 24;
-    else durationHours = (outFraction - inFraction) * 24;
+    const inHrs = inDate.getUTCHours();
+    if (!isNightShift) {
+      if (inHrs < 7) {
+        inDate.setUTCHours(7, 0, 0, 0);
+      }
+    } else {
+      if (inHrs >= 12 && inHrs < 19) {
+        inDate.setUTCHours(19, 0, 0, 0);
+      }
+    }
+
+    if (outDate < inDate) {
+      outDate.setDate(outDate.getDate() + 1);
+    }
+
+    let durationHours = (outDate.getTime() - inDate.getTime()) / (1000 * 60 * 60);
+
+    if (!isNightShift && isFriday) {
+      durationHours -= 2;
+    } else {
+      durationHours -= 1;
+    }
 
     if (durationHours <= 0) return null;
     return durationHours.toFixed(1);
@@ -610,12 +654,17 @@ export default function AttendancePage() {
               </div>
             </div>
           ) : (
-            // شاشة البصمات اليومية للموظف (بالأيام المفقودة والتمييز)
+            // شاشة البصمات اليومية للموظف 
             <div className="bg-white rounded-xl shadow-sm overflow-hidden border">
               <div className="bg-blue-50 p-4 border-b border-blue-100 flex justify-between items-center">
                 <div>
-                  <h3 className="font-black text-[var(--color-navy-900)] text-lg flex items-center gap-2"><User size={20} className="text-blue-600"/> {selectedEmpRecords.empName}</h3>
-                  <p className="text-sm text-gray-500 font-bold">الرقم الوظيفي: {selectedEmpRecords.empNumber}</p>
+                  <h3 className="font-black text-[var(--color-navy-900)] text-lg flex items-center gap-2">
+                    <User size={20} className="text-blue-600"/> {selectedEmpRecords.empName}
+                    <span className={`text-xs px-2 py-0.5 rounded-full mr-2 ${selectedEmpRecords.shiftName?.includes('ليل') || selectedEmpRecords.shiftName?.includes('مسائ') ? 'bg-indigo-100 text-indigo-800' : 'bg-orange-100 text-orange-800'}`}>
+                      {selectedEmpRecords.shiftName?.includes('ليل') || selectedEmpRecords.shiftName?.includes('مسائ') ? '🌙' : '☀️'} {selectedEmpRecords.shiftName}
+                    </span>
+                  </h3>
+                  <p className="text-sm text-gray-500 font-bold mt-1">الرقم الوظيفي: {selectedEmpRecords.empNumber}</p>
                 </div>
                 <div className="text-left">
                   <span className="bg-white px-3 py-1 rounded-full text-xs font-bold text-blue-600 border border-blue-200">فترة التقرير: {selectedEmpRecords.totalSheetDays} أيام</span>
@@ -640,14 +689,14 @@ export default function AttendancePage() {
                       const isPendingMerge = hasMissingPunch && rec.first_in && !rec.last_out && isLastDay;
                       const isProblem = hasMissingPunch && !isPendingMerge;
 
-                      const duration = calculateDuration(rec.first_in, rec.last_out);
+                      const duration = calculateDuration(rec.first_in, rec.last_out, selectedEmpRecords.shiftName, rec.date);
 
                       return (
                         <tr key={idx} className={`border-b transition ${isProblem ? 'bg-orange-50 border-orange-200' : isPendingMerge ? 'bg-yellow-50' : isMissingDay ? 'bg-gray-50/50 opacity-70' : 'hover:bg-gray-50'}`}>
                           <td className="p-4 font-bold text-gray-800 text-right flex items-center gap-2">
                             <CalendarDays size={16} className={isProblem ? 'text-orange-400' : isPendingMerge ? 'text-yellow-500' : isMissingDay ? 'text-gray-300' : 'text-blue-400'}/> {rec.date}
                             {isProblem && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] ml-2 border border-orange-200">بصمة ناقصة (مشكلة)</span>}
-                            {isPendingMerge && <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-[10px] ml-2 border border-yellow-200">معلقة للدمج (شغال حالياً)</span>}
+                            {isPendingMerge && <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-[10px] ml-2 border border-yellow-200">معلقة للدمج</span>}
                           </td>
                           <td className="p-4 font-mono font-bold text-emerald-600">{!isMissingDay ? extractTime(rec.first_in) : '-'}</td>
                           <td className="p-4 font-mono font-bold text-rose-600">{!isMissingDay ? extractTime(rec.last_out) : '-'}</td>
@@ -687,7 +736,7 @@ export default function AttendancePage() {
 
             <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
               
-              {/* قسم الغرباء الجديد بالـ Inline Edit */}
+              {/* قسم الغرباء */}
               {unknownEmployees.length > 0 && (
                 <div className="mb-6 bg-white border border-orange-200 rounded-xl shadow-sm overflow-hidden">
                   <div className="bg-orange-50 p-4 border-b border-orange-100">
@@ -695,7 +744,7 @@ export default function AttendancePage() {
                       <AlertCircle size={20} />
                       <span>{unknownEmployees.length} موظف في الشيت غير مسجلين بإدارتك!</span>
                     </div>
-                    <p className="text-xs text-orange-700">أكمل بياناتهم (الشركة، الوردية، المسمى) من الجدول أدناه واضغط إضافة لتسجيلهم في السيستم فوراً.</p>
+                    <p className="text-xs text-orange-700">أكمل بياناتهم من الجدول أدناه واضغط إضافة لتسجيلهم في السيستم فوراً.</p>
                   </div>
                   
                   <div className="overflow-x-auto max-h-[40vh]">
@@ -716,40 +765,22 @@ export default function AttendancePage() {
                             <td className="p-3 font-bold text-gray-800">{unk.empNumber}</td>
                             <td className="p-3 font-bold text-orange-800">{unk.empName}</td>
                             <td className="p-2">
-                              <input 
-                                type="text" 
-                                placeholder="اكتب المسمى..."
-                                value={unk.jobTitle} 
-                                onChange={(e) => updateUnknownField(unk.empNumber, 'jobTitle', e.target.value)} 
-                                className="w-full border rounded p-1.5 text-xs font-bold outline-none focus:ring-1 focus:ring-orange-500" 
-                              />
+                              <input type="text" placeholder="اكتب المسمى..." value={unk.jobTitle} onChange={(e) => updateUnknownField(unk.empNumber, 'jobTitle', e.target.value)} className="w-full border rounded p-1.5 text-xs font-bold outline-none focus:ring-1 focus:ring-orange-500" />
                             </td>
                             <td className="p-2">
-                              <select 
-                                value={unk.companyId} 
-                                onChange={(e) => updateUnknownField(unk.empNumber, 'companyId', e.target.value)} 
-                                className="w-full border rounded p-1.5 text-xs font-bold outline-none focus:ring-1 focus:ring-orange-500"
-                              >
+                              <select value={unk.companyId} onChange={(e) => updateUnknownField(unk.empNumber, 'companyId', e.target.value)} className="w-full border rounded p-1.5 text-xs font-bold outline-none focus:ring-1 focus:ring-orange-500">
                                 <option value="" disabled>اختر شركة...</option>
                                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                               </select>
                             </td>
                             <td className="p-2">
-                              <select 
-                                value={unk.shiftId} 
-                                onChange={(e) => updateUnknownField(unk.empNumber, 'shiftId', e.target.value)} 
-                                className="w-full border rounded p-1.5 text-xs font-bold outline-none focus:ring-1 focus:ring-orange-500"
-                              >
+                              <select value={unk.shiftId} onChange={(e) => updateUnknownField(unk.empNumber, 'shiftId', e.target.value)} className="w-full border rounded p-1.5 text-xs font-bold outline-none focus:ring-1 focus:ring-orange-500">
                                 <option value="" disabled>اختر وردية...</option>
                                 {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                               </select>
                             </td>
                             <td className="p-2 text-center">
-                              <button 
-                                onClick={() => handleInlineSaveUnknown(unk.empNumber)} 
-                                disabled={unk.isSaving}
-                                className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm disabled:opacity-50 transition"
-                              >
+                              <button onClick={() => handleInlineSaveUnknown(unk.empNumber)} disabled={unk.isSaving} className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm disabled:opacity-50 transition">
                                 {unk.isSaving ? 'جاري...' : 'إضافة للسيستم'}
                               </button>
                             </td>
@@ -773,7 +804,7 @@ export default function AttendancePage() {
                       </div>
                     </div>
                     <div>
-                       <span className="bg-green-100 text-green-700 px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><CheckCircle2 size={14}/> جاهز للدمج</span>
+                      <span className="bg-green-100 text-green-700 px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><CheckCircle2 size={14}/> جاهز للدمج</span>
                     </div>
                   </div>
                 ))}
