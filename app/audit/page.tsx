@@ -33,7 +33,7 @@ function AuditContent() {
   };
 
   useEffect(() => {
-    document.title = 'التدقيق  | STAFFCORE';
+    document.title = 'التدقيق والاعتماد | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
     if (!userStr) { router.push('/login'); return; }
     
@@ -45,7 +45,6 @@ function AuditContent() {
       if (data?.department_id) setUserDeptId(data.department_id);
       
       hasRunRef.current = false; 
-      // 🔴 يتم تشغيل الفحص فقط لمن لديه الصلاحية
       if (user.role !== 'DATA_ENTRY') {
         autoRunAuditEngine(user.role, data?.department_id);
       } else {
@@ -72,12 +71,20 @@ function AuditContent() {
       setCalculations(data || []);
       setSelectedConflicts([]);
     } catch (error: any) {
-      console.error(error);
       showToast('حدث خطأ أثناء تحميل البيانات.', 'error');
     } finally {
       setLoading(false);
     }
   }
+
+  // 🔴 دالة آمنة 100% لاستخراج الدقائق من أي نص أو تاريخ بدون تدخل الـ Timezones
+  const getMins = (timeStr: string | null) => {
+    if (!timeStr) return 0;
+    const timePart = timeStr.includes('T') ? timeStr.split('T')[1].substring(0, 5) : timeStr.substring(0, 5);
+    if (!timePart || !timePart.includes(':')) return 0;
+    const [h, m] = timePart.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
 
   const autoRunAuditEngine = async (role: string | null, deptId: string | null) => {
     if (role !== 'ADMIN' && role !== 'MANAGER') {
@@ -89,6 +96,7 @@ function AuditContent() {
     setLoading(true);
 
     try {
+      // 1. تنظيف القديم غير المعتمد
       let deleteQuery = supabase.from('ot_calculations')
           .delete()
           .eq('month', selectedMonth)
@@ -105,7 +113,8 @@ function AuditContent() {
       const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
       const endDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-31`;
 
-      let assignQuery = supabase.from('ot_assignments').select(`date, day_end_time, night_end_time, department_id, ot_assignment_employees(emp_number, ot_end_time, shift_snapshot, employees!inner(shifts(name), department_id))`).gte('date', startDate).lte('date', endDate);
+      // 2. جلب التكاليف والبصمات والبيانات المعتمدة مسبقاً
+      let assignQuery = supabase.from('ot_assignments').select(`date, day_end_time, night_end_time, department_id, ot_assignment_employees(emp_number, ot_end_time, shift_snapshot, employees!inner(shifts(name), companies(name), department_id))`).gte('date', startDate).lte('date', endDate);
       if (role === 'MANAGER' && deptId) assignQuery = assignQuery.eq('department_id', deptId);
       const { data: rawAssignments } = await assignQuery;
 
@@ -118,57 +127,96 @@ function AuditContent() {
       
       const resolvedSet = new Set(resolvedData?.map(r => `${r.emp_number}_${r.date}`) || []);
 
-      const getMins = (timeStr: string) => {
-        if (!timeStr) return 0;
-        const [h, m] = timeStr.split(':').map(Number);
-        return h * 60 + m;
-      };
-
       const auditResults: any[] = [];
 
       rawAssignments?.forEach(assign => { 
         assign.ot_assignment_employees.forEach((emp: any) => { 
           if (resolvedSet.has(`${emp.emp_number}_${assign.date}`)) return;
 
+          // 🔴 استخراج نوع الموظف والوردية
           const shift = emp.shift_snapshot || emp.employees?.shifts?.name || '';
-          const isNight = shift.includes('ليل') || shift.includes('مسائي');
-          const basicEndStr = isNight ? '04:00' : '16:00';
+          const companyName = emp.employees?.companies?.name || '';
           
-          const assignEndStr = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
+          const isNight = shift.includes('ليل') || shift.includes('مسائي') || shift.toLowerCase().includes('night');
+          const isContractor = companyName.includes('مقاول') || companyName.toLowerCase().includes('contractor');
+          const isFriday = new Date(assign.date).getDay() === 5;
 
-          const assignDiffMins = getMins(assignEndStr) - getMins(basicEndStr);
-          const assignedHours = Math.round(((assignDiffMins < 0 ? assignDiffMins + (24*60) : assignDiffMins) / 60) * 10) / 10;
+          // 🔴 حساب الساعات المطلوبة (Assigned OT) بناءً على البيزنس
+          const shiftStartMins = isNight ? 19 * 60 : 7 * 60;
+          const basicEndMins = isNight ? 4 * 60 : 16 * 60;
+          const assignEndStr = emp.ot_end_time?.substring(0, 5) || (isNight ? assign.night_end_time : assign.day_end_time)?.substring(0, 5) || '';
+          const assignEndMins = getMins(assignEndStr);
+
+          let assignedOT = 0;
+          
+          if (isContractor || isFriday) {
+              let cAssignDiff = assignEndMins - shiftStartMins;
+              if (cAssignDiff < 0) cAssignDiff += 24 * 60; // عبور منتصف الليل
+              assignedOT = cAssignDiff / 60;
+              if (!isNight && isFriday) assignedOT -= 2;
+              else assignedOT -= 1;
+          } else {
+              // موظف عادي في يوم عادي: الأوفر تايم يبدأ من 4 أو 16
+              let nAssignDiff = assignEndMins - basicEndMins;
+              if (nAssignDiff < 0) nAssignDiff += 24 * 60;
+              assignedOT = nAssignDiff / 60;
+          }
+          assignedOT = Math.max(0, Math.round(assignedOT * 10) / 10);
 
           const attendance = attendances?.find(a => a.emp_number === emp.emp_number && a.date === assign.date);
           
           let status = 'MATCHED';
           let exceptionType = 'سليم (مطابق)';
-          let finalHours = assignedHours;
-          let attendedHours = 0;
+          let finalHours = assignedOT;
+          let attendedOT = 0;
 
-          if (!attendance || !attendance.last_out) {
-            status = 'CONFLICT'; exceptionType = 'لم يسجل بصمة انصراف'; finalHours = 0;
+          // 🔴 حساب الساعات المحققة فعلياً من البصمة (Attended OT)
+          if (!attendance || !attendance.last_out || !attendance.first_in) {
+            status = 'CONFLICT'; exceptionType = 'بصمة غير مكتملة (أو غياب)'; finalHours = 0;
           } else {
-            const actualOutStr = new Date(attendance.last_out).toISOString().substring(11, 16);
-            const actualDiffMins = getMins(actualOutStr) - getMins(basicEndStr);
-            attendedHours = Math.round(((actualDiffMins < 0 ? actualDiffMins + (24*60) : actualDiffMins) / 60) * 10) / 10;
+            let inMins = getMins(attendance.first_in);
+            let outMins = getMins(attendance.last_out);
 
-            const diffMins = (assignedHours - attendedHours) * 60;
+            // التجاهل (Grace Period) للبصمة المبكرة
+            if (!isNight && inMins < 7 * 60) inMins = 7 * 60;
+            else if (isNight && inMins >= 12 * 60 && inMins < 19 * 60) inMins = 19 * 60;
 
-            if (attendedHours < assignedHours) {
-              if (diffMins <= 20) {
-                status = 'MATCHED'; exceptionType = 'سليم (ضمن السماحية)'; finalHours = assignedHours;
+            let diffMins = outMins - inMins;
+            if (diffMins < 0) diffMins += 24 * 60;
+            let netHours = diffMins / 60;
+
+            // خصم الراحات
+            if (!isNight && isFriday) netHours -= 2;
+            else netHours -= 1;
+            
+            if (netHours < 0) netHours = 0;
+
+            // تحديد مقدار الأوفر تايم المحقق
+            if (isContractor || isFriday) {
+                attendedOT = netHours; // بياخد الوقت الصافي بالكامل
+            } else {
+                attendedOT = netHours - 8; // موظف عادي يوم عادي بيتخصم منه دوامه الأساسي الـ 8
+                if (attendedOT < 0) attendedOT = 0;
+            }
+            attendedOT = Math.round(attendedOT * 10) / 10;
+
+            // 🔴 المطابقة الذكية
+            const diffFromAssignedMins = (assignedOT - attendedOT) * 60;
+
+            if (attendedOT < assignedOT) {
+              if (diffFromAssignedMins <= 20) { // سماحية 20 دقيقة انصراف مبكر
+                status = 'MATCHED'; exceptionType = 'سليم (ضمن السماحية)'; finalHours = assignedOT;
               } else {
-                status = 'CONFLICT'; exceptionType = 'انصراف مبكر عن التكليف'; finalHours = 0;
+                status = 'CONFLICT'; exceptionType = `انصراف مبكر (${attendedOT} ساعة من أصل ${assignedOT})`; finalHours = 0;
               }
-            } else if (attendedHours > assignedHours) {
-              status = 'CONFLICT'; exceptionType = 'ساعات إضافية تتجاوز التكليف'; finalHours = 0;
+            } else if (attendedOT > assignedOT) {
+              status = 'CONFLICT'; exceptionType = `ساعات بصمة تتجاوز التكليف (${attendedOT} ساعة)`; finalHours = 0;
             }
           }
 
           auditResults.push({
             emp_number: emp.emp_number, date: assign.date, month: selectedMonth, year: selectedYear,
-            timesheet_hours: assignedHours,
+            timesheet_hours: assignedOT, // 🔴 حفظ الساعات المعتمدة المطلوبة (التكليف)
             attendance_in: attendance?.first_in || null, attendance_out: attendance?.last_out || null,
             assigned_end_time: assignEndStr, final_approved_hours: finalHours, exception_type: exceptionType, status: status
           });
@@ -194,23 +242,48 @@ function AuditContent() {
     else setSelectedConflicts([...selectedConflicts, id]);
   };
 
+  // 🔴 حل التعارضات باعتماد نفس دقة محرك الـ Audit
   const resolveConflicts = async (ids: string[], choice: 'ATTENDANCE' | 'ASSIGNMENT') => {
     try {
       const recordsToUpdate = calculations.filter(c => ids.includes(c.id));
       
       for (const record of recordsToUpdate) {
         let approvedHours = 0;
+
         if (choice === 'ASSIGNMENT') {
           approvedHours = record.timesheet_hours;
         } else {
-          const shift = record.employees?.shifts?.name || '';
-          const isNight = shift.includes('ليل') || shift.includes('مسائي');
-          const basicEndStr = isNight ? '04:00' : '16:00';
-          if (record.attendance_out) {
-             const actualOutStr = new Date(record.attendance_out).toISOString().substring(11, 16);
-             const getMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-             let actualDiffMins = getMins(actualOutStr) - getMins(basicEndStr);
-             approvedHours = Math.round(((actualDiffMins < 0 ? actualDiffMins + (24*60) : actualDiffMins) / 60) * 10) / 10;
+          // حساب ساعات البصمة (Attended OT) لو المدير اختار "اعتماد البصمة"
+          if (record.attendance_in && record.attendance_out) {
+            const shiftName = record.employees?.shifts?.name || '';
+            const companyName = record.employees?.companies?.name || '';
+            const isNight = shiftName.includes('ليل') || shiftName.includes('مسائي') || shiftName.toLowerCase().includes('night');
+            const isContractor = companyName.includes('مقاول') || companyName.toLowerCase().includes('contractor');
+            const isFriday = new Date(record.date).getDay() === 5;
+
+            let inMins = getMins(record.attendance_in);
+            let outMins = getMins(record.attendance_out);
+
+            if (!isNight && inMins < 7 * 60) inMins = 7 * 60;
+            else if (isNight && inMins >= 12 * 60 && inMins < 19 * 60) inMins = 19 * 60;
+
+            let diffMins = outMins - inMins;
+            if (diffMins < 0) diffMins += 24 * 60;
+            let netHours = diffMins / 60;
+
+            if (!isNight && isFriday) netHours -= 2;
+            else netHours -= 1;
+            if (netHours < 0) netHours = 0;
+
+            if (isContractor || isFriday) {
+                approvedHours = netHours;
+            } else {
+                approvedHours = netHours - 8;
+                if (approvedHours < 0) approvedHours = 0;
+            }
+            approvedHours = Math.round(approvedHours * 10) / 10;
+          } else {
+            approvedHours = 0;
           }
         }
 
@@ -240,12 +313,12 @@ function AuditContent() {
   return (
     <div className="relative w-full min-h-screen">
       
-      {/* 🔴 شاشة الحماية والـ Blur لمدخل البيانات */}
+      {/* شاشة الحماية والـ Blur لمدخل البيانات */}
       {userRole === 'DATA_ENTRY' && (
         <ForbiddenOverlay userDeptId={userDeptId} />
       )}
 
-      {/* 🔴 المحتوى محمي بالـ Blur */}
+      {/* المحتوى محمي بالـ Blur */}
       <div className={`flex flex-col space-y-6 pb-10 transition-all duration-500 ${userRole === 'DATA_ENTRY' ? 'blur-[12px] opacity-30 pointer-events-none select-none grayscale-[50%]' : 'animate-in fade-in'}`}>
         
         {toast.show && (
@@ -317,7 +390,7 @@ function AuditContent() {
                 <tr className="bg-[var(--color-neutral-100)] border-b text-[var(--color-navy-800)] text-sm">
                   {userRole !== 'FACTORY_MANAGER' && <th className="p-4 w-12 text-center"></th>}
                   <th className="p-4 font-bold">التاريخ والموظف</th>
-                  <th className="p-4 font-bold text-center border-r bg-gray-50 text-indigo-800">ساعات التكليف</th>
+                  <th className="p-4 font-bold text-center border-r bg-gray-50 text-indigo-800">ساعات الأوفر تايم (تكليف)</th>
                   <th className="p-4 font-bold text-center border-l bg-gray-50 text-emerald-800">وقت الانصراف (البصمة)</th>
                   <th className="p-4 font-bold text-center">حالة المطابقة</th>
                   <th className="p-4 font-black text-center bg-gray-200">القرار المعتمد النهائي</th>
@@ -345,9 +418,11 @@ function AuditContent() {
                         <div className="text-xs font-bold text-gray-500 mt-1">مكلف لـ {calc.assigned_end_time}</div>
                       </td>
                       <td className="p-3 text-center border-l bg-gray-50">
-                        {calc.attendance_out ? 
-                          <span className="text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg dir-ltr inline-block border border-emerald-200 shadow-sm">{new Date(calc.attendance_out).toISOString().substring(11, 16)}</span> : 
-                          <span className="text-xs font-bold text-red-500 bg-red-100 px-2 py-1 rounded border border-red-200">بدون بصمة انصراف</span>
+                        {calc.attendance_out && calc.attendance_in ? 
+                          <span className="text-sm font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-lg dir-ltr inline-block border border-emerald-200 shadow-sm">
+                            {new Date(calc.attendance_out).toISOString().substring(11, 16)}
+                          </span> : 
+                          <span className="text-xs font-bold text-red-500 bg-red-100 px-2 py-1 rounded border border-red-200">بدون بصمة (أو غير مكتملة)</span>
                         }
                       </td>
                       <td className="p-3 text-center">
