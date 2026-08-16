@@ -214,7 +214,7 @@ export default function AssignmentsPage() {
         title: '🔔 تكليف إضافي بانتظار الاعتماد',
         body: `تم تسجيل تكليف إضافي لعدد ${selectedEmpNumbers.length} موظفين بتاريخ ${formDate}`,
         department_id: formDept,
-        target_url: '/approvals' 
+        target_url: '/approvals?section=assignments' 
       }]);
       window.dispatchEvent(new Event('new_notification'));
 

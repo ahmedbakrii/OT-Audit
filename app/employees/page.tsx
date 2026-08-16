@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ChevronDown, UserPlus, FileSpreadsheet, X, Upload, CheckCircle2, AlertCircle, Trash2, Filter, XCircle, ArrowRight, User, Briefcase, Building2, Activity, Clock, CalendarDays, UserX, Scale, ShieldAlert, BadgeCent } from 'lucide-react';
+import { ChevronDown, UserPlus, FileSpreadsheet, X, Upload, CheckCircle2, AlertCircle, Trash2, Filter, XCircle, ArrowRight, User, Briefcase, Building2, Activity, Clock, CalendarDays, UserX, Scale, ShieldAlert, BadgeCent, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useRouter } from 'next/navigation';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
@@ -19,7 +19,8 @@ export default function EmployeesPage() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // الفلاتر
+  // الفلاتر والبحث
+  const [searchQuery, setSearchQuery] = useState(''); // 🔴 ستيت البحث الجديد
   const [filterCompany, setFilterCompany] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('');
   const [filterShift, setFilterShift] = useState('');
@@ -83,7 +84,7 @@ export default function EmployeesPage() {
         .from('employees')
         .select(`id, emp_number, name, job_title, status, company_id, department_id, shift_id, companies(name), departments(name), shifts(name)`);
 
-      if (role === 'MANAGER' && deptId) {
+      if ((role === 'MANAGER' || role === 'DATA_ENTRY') && deptId) {
         query = query.eq('department_id', deptId);
       }
 
@@ -137,7 +138,6 @@ export default function EmployeesPage() {
 
   const uniqueJobTitles = Array.from(new Set(employees.map(e => e.job_title))).filter(Boolean);
 
-  // 🔴 خوارزمية الترتيب الذكي (Smart Auto-Sorting)
   const getCompanyWeight = (compName: string) => {
     if (!compName) return 99;
     if (compName.includes('انيرجيا') || compName.includes('Energya')) return 1;
@@ -158,31 +158,33 @@ export default function EmployeesPage() {
     return 7;
   };
 
+  // 🔴 تحديث الفلتر ليشمل البحث بالاسم أو الرقم الوظيفي
   const filteredEmployees = employees.filter(emp => {
+    const matchSearch = searchQuery === '' || 
+                        (emp.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                        (emp.emp_number || '').includes(searchQuery);
+
     return (
+      matchSearch &&
       (filterCompany === '' || emp.companies?.name === filterCompany) &&
       (filterDepartment === '' || emp.departments?.name === filterDepartment) &&
       (filterShift === '' || emp.shifts?.name === filterShift) &&
       (filterJobTitle === '' || emp.job_title === filterJobTitle)
     );
   }).sort((a, b) => {
-    // الترتيب حسب الشركة أولاً
     const compDiff = getCompanyWeight(a.companies?.name) - getCompanyWeight(b.companies?.name);
     if (compDiff !== 0) return compDiff;
     
-    // الترتيب حسب الأهمية الوظيفية ثانياً
     const jobDiff = getJobTitleWeight(a.job_title) - getJobTitleWeight(b.job_title);
     if (jobDiff !== 0) return jobDiff;
     
-    // الترتيب الأبجدي أخيراً
     return a.name.localeCompare(b.name, 'ar');
   });
 
-  // تصميم الـ Badges (الشارات)
   const getShiftBadge = (shiftName: string) => {
     if (!shiftName) return <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-xs font-bold shadow-sm">-</span>;
     if (shiftName.includes('صباحي') || shiftName.includes('نهار')) return <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold border border-orange-200 shadow-sm">☀️ {shiftName}</span>;
-    if (shiftName.includes('مسائيئي') || shiftName.includes('ليل') || shiftName.includes('night')) return <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200 shadow-sm">🌙 {shiftName}</span>;
+    if (shiftName.includes('مسائي') || shiftName.includes('ليل') || shiftName.includes('night')) return <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200 shadow-sm">🌙 {shiftName}</span>;
     return <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-xs font-bold">{shiftName}</span>;
   };
 
@@ -307,7 +309,6 @@ export default function EmployeesPage() {
     reader.readAsBinaryString(file);
   };
 
-  // حسابات البروفايل
   const totalLeaves = profileData.leaves.reduce((sum: number, req: any) => sum + (req.total_days || 0), 0);
   const totalOTHours = profileData.ot.reduce((sum: number, req: any) => sum + (parseFloat(req.final_approved_hours) || 0), 0);
   const totalAbsences = profileData.absences.length;
@@ -331,12 +332,12 @@ export default function EmployeesPage() {
 
       {currentView === 'LIST' && (
         <div className="animate-in slide-in-from-bottom-4 space-y-4 px-4 md:px-6 mt-4 max-w-7xl mx-auto w-full">
-          {/* Header */}
+          
           <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm border-t-4 border-[var(--color-navy-500)] gap-4">
             <div>
               <h1 className="text-2xl font-bold text-[var(--color-navy-900)]">إدارة الموظفين</h1>
               <p className="text-gray-500 text-sm mt-1">
-                إجمالي: {filteredEmployees.length} موظف {userRole === 'MANAGER' && '(في إدارتك)'}. <span className="font-bold text-blue-600">اضغط على أي موظف لفتح الملف الشامل.</span>
+                إجمالي: {filteredEmployees.length} موظف {(userRole === 'MANAGER' || userRole === 'DATA_ENTRY') && '(في إدارتك)'}. <span className="font-bold text-blue-600">اضغط على أي موظف لفتح الملف الشامل.</span>
               </p>
             </div>
             <div className="flex items-center gap-3 w-full md:w-auto">
@@ -367,42 +368,52 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* شريط الفلاتر */}
           <div className="bg-white p-4 rounded-xl shadow-sm flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2 text-[var(--color-navy-900)] font-semibold">
-              <Filter size={18} /> الفرز حسب:
+              <Filter size={18} /> الفرز والبحث:
             </div>
             
-            <select value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[150px] font-bold">
+            {/* 🔴 مربع البحث الجديد */}
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search size={16} className="absolute right-3 top-2.5 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="بحث بالاسم أو الرقم الوظيفي..." 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+                className="w-full border rounded-lg pl-3 pr-9 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-700" 
+              />
+            </div>
+
+            <select value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[130px] font-bold">
               <option value="">كل الشركات</option>
               {companies.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
 
-            {userRole !== 'MANAGER' && (
-              <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[150px] font-bold">
+            {(userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') && (
+              <select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[130px] font-bold">
                 <option value="">كل الأقسام</option>
                 {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
             )}
 
-            <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[150px] font-bold">
+            <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[130px] font-bold">
               <option value="">كل الورديات</option>
               {shifts.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
             </select>
 
-            <select value={filterJobTitle} onChange={(e) => setFilterJobTitle(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[150px] font-bold">
+            <select value={filterJobTitle} onChange={(e) => setFilterJobTitle(e.target.value)} className="border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] min-w-[130px] font-bold">
               <option value="">كل المهن</option>
               {uniqueJobTitles.map((title: any, idx) => <option key={idx} value={title}>{title}</option>)}
             </select>
 
-            {(filterCompany || filterDepartment || filterShift || filterJobTitle) && (
-              <button onClick={() => { setFilterCompany(''); setFilterDepartment(''); setFilterShift(''); setFilterJobTitle(''); }} className="flex items-center gap-1 text-red-600 hover:text-red-800 text-sm font-semibold transition mr-auto">
-                <XCircle size={16} /> مسح الفلاتر
+            {(searchQuery || filterCompany || filterDepartment || filterShift || filterJobTitle) && (
+              <button onClick={() => { setSearchQuery(''); setFilterCompany(''); setFilterDepartment(''); setFilterShift(''); setFilterJobTitle(''); }} className="flex items-center gap-1 text-red-600 hover:text-red-800 text-sm font-semibold transition mr-auto bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
+                <XCircle size={16} /> مسح
               </button>
             )}
           </div>
 
-          {/* Employee Table */}
           <div className="bg-white rounded-xl shadow-sm overflow-hidden border">
             <div className="overflow-x-auto">
               <table className="w-full text-right border-collapse">
@@ -459,9 +470,6 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* شاشة ملف الموظف الشامل (360° Profile) */}
-      {/* ========================================== */}
       {currentView === 'PROFILE' && selectedEmp && (
         <div className="space-y-6 animate-in slide-in-from-right-4 px-4 md:px-6 mt-4 max-w-7xl mx-auto w-full">
           
@@ -469,7 +477,6 @@ export default function EmployeesPage() {
             <ArrowRight size={18}/> العودة لقائمة الموظفين
           </button>
 
-          {/* ההيدر التعريفي */}
           <div className="bg-gradient-to-l from-[var(--color-navy-900)] to-blue-800 p-8 rounded-3xl shadow-xl text-white relative overflow-hidden flex flex-col md:flex-row items-center gap-6">
             <div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm border-2 border-white/20 shrink-0 z-10">
               <User size={50} className="text-white" />
@@ -484,7 +491,6 @@ export default function EmployeesPage() {
                 <span className="flex items-center gap-1 bg-white/10 px-3 py-1 rounded-lg"><Building2 size={16}/> {selectedEmp.departments?.name}</span>
                 <span className="flex items-center gap-1 bg-white/10 px-3 py-1 rounded-lg font-mono">#{selectedEmp.emp_number}</span>
               </p>
-              {/* كروت تفصيلية للشركة والوردية بتصميم فخم */}
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-4">
                 <div className="flex items-center gap-2 bg-white px-4 py-1.5 rounded-full text-sm font-bold shadow-sm">
                   <BadgeCent size={16} className="text-gray-500"/>
@@ -505,7 +511,6 @@ export default function EmployeesPage() {
             <div className="text-center py-20 font-bold text-gray-400 bg-white rounded-2xl shadow-sm border">جاري تجميع بيانات الموظف (360° Profile)...</div>
           ) : (
             <>
-              {/* كروت الإحصائيات الشاملة */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="bg-white p-5 rounded-2xl shadow-sm border-t-4 border-emerald-500 hover:-translate-y-1 transition transform">
                   <div className="flex justify-between items-start"><p className="text-gray-500 text-xs font-bold mb-1">إجمالي الإضافي المعتمد</p><div className="bg-emerald-50 p-1.5 rounded-lg text-emerald-600"><Clock size={16}/></div></div>
@@ -530,7 +535,6 @@ export default function EmployeesPage() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* الرسم البياني لنسبة الالتزام */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border lg:col-span-1 flex flex-col">
                   <h3 className="text-sm font-black text-[var(--color-navy-800)] mb-4 border-b pb-2 flex items-center gap-2"><ShieldAlert size={16} className="text-blue-500"/> مؤشر التواجد والانضباط</h3>
                   <div className="flex-1 min-h-[200px]">
@@ -550,10 +554,8 @@ export default function EmployeesPage() {
                   </div>
                 </div>
 
-                {/* السجلات التفصيلية */}
                 <div className="lg:col-span-2 space-y-6">
                   
-                  {/* سجل الجزاءات */}
                   <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                     <div className="bg-rose-50/50 p-4 border-b border-rose-100 flex items-center gap-2">
                       <Scale className="text-rose-800" size={18}/> <h3 className="font-black text-rose-900 text-sm">أرشيف الجزاءات</h3>
@@ -578,7 +580,6 @@ export default function EmployeesPage() {
                     </div>
                   </div>
 
-                  {/* سجل الإجازات */}
                   <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                     <div className="bg-blue-50/50 p-4 border-b border-blue-100 flex items-center gap-2">
                       <CalendarDays className="text-blue-600" size={18}/> <h3 className="font-black text-blue-900 text-sm">سجل الإجازات المعتمدة</h3>
@@ -611,7 +612,6 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* المودالز (تظهر للأدمن والمدير فقط) */}
       {currentView === 'LIST' && (userRole === 'ADMIN' || userRole === 'MANAGER') && (showSingleModal || showEditModal) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">

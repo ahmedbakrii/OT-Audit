@@ -269,7 +269,7 @@ export default function PermissionsPage() {
           title: '🔔 تصريح خروج/تأخير للمراجعة',
           body: `طلب تصريح خروج للموظف ${emp.name} بتاريخ ${permData.date}`,
           department_id: emp.department_id,
-          target_url: '/approvals'
+          target_url: '/approvals?section=permissions'
         }]);
         window.dispatchEvent(new Event('new_notification'));
       }

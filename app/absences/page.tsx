@@ -248,7 +248,7 @@ export default function AbsencesPage() {
         title: '🔔 كشف غياب بانتظار الاعتماد',
         body: `تم تسجيل كشف غياب لعدد ${absentEmployeesList.length} موظفين بتاريخ ${formDate}`,
         department_id: formDept,
-        target_url: '/approvals' 
+        target_url: '/approvals?section=absences' 
       }]);
       window.dispatchEvent(new Event('new_notification'));
 

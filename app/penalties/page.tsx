@@ -233,7 +233,7 @@ export default function penaltyPage() {
           title: '🔔 طلب جزاء جديد للمراجعة',
           body: `طلب توقيع جزاء على الموظف ${emp.name} بسبب (${finalType})`,
           department_id: userDeptId, // هيوصل لمدير الإدارة الطالبة
-          target_url: '/approvals'
+          target_url: '/approvals?section=penalties'
         }]);
         window.dispatchEvent(new Event('new_notification'));
       }

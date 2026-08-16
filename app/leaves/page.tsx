@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, Save, Printer, User, CheckCircle2, AlertCircle, ArrowRight, Clock, FileText, XCircle, Search, Edit, Trash2, Filter, LayoutDashboard, FilePlus2, PieChart, Activity, CheckCircle, AlertTriangle, TrendingUp, History, Stethoscope, CalendarOff } from 'lucide-react';
+import { CalendarDays, Save, Printer, User, CheckCircle2, AlertCircle, ArrowRight, Clock, FileText, XCircle, Search, Edit, Trash2, Filter, LayoutDashboard, FilePlus2, PieChart, Activity, CheckCircle, AlertTriangle, TrendingUp, History, Stethoscope, CalendarOff, UploadCloud, Paperclip, ExternalLink } from 'lucide-react';
 
 import '@/components/leaves/leave-print.css';
 import EnergyaLeaveTemplate, { EnergyaLeaveData } from '@/components/leaves/EnergyaLeaveTemplate';
@@ -72,9 +72,6 @@ const ChevronDownIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m6 9 6 6 6-6"/></svg>
 );
 
-// ==========================================
-// 2️⃣ الصفحة الرئيسية
-// ==========================================
 export default function LeavesPage() {
   const router = useRouter();
   
@@ -85,24 +82,23 @@ export default function LeavesPage() {
 
   const [currentView, setCurrentView] = useState<'DASHBOARD' | 'FORM'>('FORM');
 
-  // الداتا
   const [employees, setEmployees] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   
-  // الفلاتر
   const [deptFilter, setDeptFilter] = useState<string>(''); 
   const [dateFilter, setDateFilter] = useState<string>('THIS_MONTH');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
 
-  // حالة الفورم
   const [selectedEmpId, setSelectedEmpId] = useState<string>('');
   const [managerName, setManagerName] = useState<string>('');
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
-  const [leaveData, setLeaveData] = useState({ leaveType: 'annual', startDate: '', endDate: '', totalDays: 0, substituteEmployee: '', contactPhone: '', destination: '', emergencyReason: '' });
+  const [leaveData, setLeaveData] = useState({ leaveType: 'annual', startDate: '', endDate: '', totalDays: 0, substituteEmployee: '', contactPhone: '', destination: '', emergencyReason: '', attachmentUrl: '' });
+  
+  const [medicalFile, setMedicalFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // حالات الـ UI
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showPrintView, setShowPrintView] = useState(false);
@@ -117,7 +113,6 @@ export default function LeavesPage() {
 
   const leaveTypesMap: Record<string, string> = { annual: 'سنوية', deduct: 'بدون أجر', medical: 'مرضي', emergency: 'عارضة', hajj: 'حج/عمرة', other: 'أخرى' };
 
-  // 1. تهيئة بيانات المستخدم
   useEffect(() => {
     document.title = ' الأجازات | STAFFCORE';
     const userStr = localStorage.getItem('ot_user');
@@ -138,7 +133,6 @@ export default function LeavesPage() {
     initUser();
   }, [router]);
 
-  // 2. سحب البيانات مع الفلاتر الذكية
   useEffect(() => {
     if (!isInitialized) return;
 
@@ -157,14 +151,12 @@ export default function LeavesPage() {
         .select('*, employees!inner(name, emp_number, job_title, department_id, departments(name), companies(name))')
         .order('created_at', { ascending: false });
       
-      // فلتر الإدارة
       if (userRole === 'MANAGER' || userRole === 'DATA_ENTRY') {
         reqQuery = reqQuery.eq('employees.department_id', userDeptId);
       } else if ((userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') && deptFilter) {
         reqQuery = reqQuery.eq('employees.department_id', deptFilter);
       }
 
-      // فلتر المدة الذكي (يطبق على تاريخ بداية الإجازة)
       const now = new Date();
       let dStart = null, dEnd = null;
       
@@ -190,7 +182,6 @@ export default function LeavesPage() {
     loadData();
   }, [isInitialized, userRole, userDeptId, deptFilter, dateFilter, customStartDate, customEndDate]);
 
-  // حساب الأيام تلقائياً في الفورم
   useEffect(() => {
     if (leaveData.startDate && leaveData.endDate) {
       const start = new Date(leaveData.startDate);
@@ -201,7 +192,6 @@ export default function LeavesPage() {
     }
   }, [leaveData.startDate, leaveData.endDate]);
 
-  // جلب اسم المدير في الفورم
   useEffect(() => {
     async function fetchManager() {
       if (!selectedEmpId) return setManagerName('');
@@ -214,13 +204,11 @@ export default function LeavesPage() {
     fetchManager();
   }, [selectedEmpId, employees]);
 
-  // ==========================================
-  // العمليات (حفظ، تعديل، إلغاء، طباعة)
-  // ==========================================
-const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmpId || !leaveData.startDate || !leaveData.endDate) return showToast('برجاء استكمال البيانات', 'error');
     if (new Date(leaveData.startDate) > new Date(leaveData.endDate)) return showToast('تاريخ البداية لا يمكن أن يكون بعد النهاية', 'error');
+    if (leaveData.leaveType === 'medical' && !medicalFile && !leaveData.attachmentUrl) return showToast('برجاء إرفاق تقرير السكليف (المرضي)', 'error');
 
     setSubmitting(true);
     const emp = employees.find(e => e.id === selectedEmpId);
@@ -231,10 +219,23 @@ const handleSubmit = async (e: React.FormEvent) => {
         if (busySub) { setSubmitting(false); return showToast('الموظف البديل لديه إجازة معتمدة في هذه الفترة!', 'error'); }
       }
 
+      let finalAttachmentUrl = leaveData.attachmentUrl;
+      if (medicalFile) {
+        const fileExt = medicalFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${emp.emp_number}.${fileExt}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage.from('medical_leaves').upload(fileName, medicalFile);
+        
+        if (uploadError) throw uploadError;
+        
+        const { data: publicUrlData } = supabase.storage.from('medical_leaves').getPublicUrl(fileName);
+        finalAttachmentUrl = publicUrlData.publicUrl;
+      }
+
       const payload = {
         employee_id: emp.id, company_id: emp.company_id, leave_type: leaveData.leaveType, start_date: leaveData.startDate,
         end_date: leaveData.endDate, total_days: leaveData.totalDays, substitute_employee: leaveData.substituteEmployee || null,
         contact_phone: leaveData.contactPhone, contact_address: leaveData.destination, reason: leaveData.emergencyReason,
+        attachment_url: finalAttachmentUrl,
         status: 'PENDING', created_by: userId
       };
 
@@ -247,12 +248,11 @@ const handleSubmit = async (e: React.FormEvent) => {
         if (error) throw error;
         showToast('تم إرسال الطلب للاعتماد', 'success');
 
-        // 🔴 إرسال الإشعار الذكي
         await supabase.from('notifications').insert([{
           title: '🔔 طلب إجازة جديد للمراجعة',
           body: `طلب إجازة ${leaveData.leaveType === 'annual' ? 'سنوية' : 'جديد'} من ${emp.name}`,
           department_id: emp.department_id,
-          target_url: '/approvals' 
+          target_url: '/approvals?section=leaves' 
         }]);
         window.dispatchEvent(new Event('new_notification'));
       }
@@ -260,7 +260,7 @@ const handleSubmit = async (e: React.FormEvent) => {
       resetForm();
       setCustomStartDate(prev => prev); 
 
-    } catch (error: any) { showToast('حدث خطأ أثناء الحفظ.', 'error'); } 
+    } catch (error: any) { showToast('حدث خطأ أثناء الحفظ. تأكد من إعدادات الـ Storage', 'error'); } 
     finally { setSubmitting(false); }
   };
 
@@ -269,7 +269,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     setLeaveData({
       leaveType: req.leave_type, startDate: req.start_date, endDate: req.end_date, totalDays: req.total_days,
       substituteEmployee: req.substitute_employee || '', contactPhone: req.contact_phone || '',
-      destination: req.contact_address || '', emergencyReason: req.reason || ''
+      destination: req.contact_address || '', emergencyReason: req.reason || '', attachmentUrl: req.attachment_url || ''
     });
     setEditingLeaveId(req.id);
     setCurrentView('FORM');
@@ -287,38 +287,66 @@ const handleSubmit = async (e: React.FormEvent) => {
   };
 
   const resetForm = () => {
-    setSelectedEmpId(''); setEditingLeaveId(null);
-    setLeaveData({ leaveType: 'annual', startDate: '', endDate: '', totalDays: 0, substituteEmployee: '', contactPhone: '', destination: '', emergencyReason: '' });
+    setSelectedEmpId(''); setEditingLeaveId(null); setMedicalFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setLeaveData({ leaveType: 'annual', startDate: '', endDate: '', totalDays: 0, substituteEmployee: '', contactPhone: '', destination: '', emergencyReason: '', attachmentUrl: '' });
   };
 
+  // 🔴 دالة الطباعة المحدثة اللي بتسحب اسم المدير الحقيقي من الداتابيز
   const handlePrint = async (req: any) => {
     const compName = req.employees?.companies?.name;
     setPrintCompany(compName);
     const subEmp = employees.find(e => e.id === req.substitute_employee);
 
+    // منطق ذكي لاستدعاء اسم المدير الحقيقي من الداتابيز
+    let finalManagerName = 'جاري التحميل...';
+    let finalManagerTitle = 'مدير الإدارة';
+    
+    // هل طالب الإجازة نفسه هو مدير؟
+    const isRequesterManager = req.employees?.job_title?.includes('مدير');
+
+    if (isRequesterManager) {
+      // لو هو مدير، نجيب اسم مدير المصنع (FACTORY_MANAGER) عشان هو اللي بيعتمدله
+      const { data: fm } = await supabase.from('users').select('name').eq('role', 'FACTORY_MANAGER').maybeSingle();
+      finalManagerName = fm?.name || 'مدير المصنع';
+      finalManagerTitle = 'مدير المصنع';
+    } else {
+      // لو موظف عادي، نجيب اسم مدير إدارته
+      const { data: dm } = await supabase.from('users').select('name').eq('role', 'MANAGER').eq('department_id', req.employees.department_id).maybeSingle();
+      finalManagerName = dm?.name || 'مدير الإدارة المباشر';
+    }
+
+    // تمرير الداتا الحقيقية للورقة
+    const baseData = {
+      employeeName: req.employees.name, 
+      employeeCode: req.employees.emp_number, 
+      jobTitle: req.employees.job_title,
+      department: req.employees.departments?.name || '', 
+      leaveType: req.leave_type as any, 
+      startDate: req.start_date,
+      endDate: req.end_date, 
+      leaveDays: req.total_days, 
+      replacementName: subEmp?.name || '', 
+      
+      managerDecision: req.status === 'APPROVED' ? 'approved' : 'rejected',
+      managerName: finalManagerName, // الاسم الحقيقي
+      managerTitle: finalManagerTitle, // الوظيفة الحقيقية
+      managerSignatureDate: new Date(req.updated_at || req.created_at).toISOString().split('T')[0], // تاريخ الاعتماد الفعلي من السيستم
+      attachmentUrl: req.attachment_url
+    };
+
     if (compName === 'Energya' || compName === 'انيرجيا') {
-      setPrintData({
-        employeeName: req.employees.name, employeeCode: req.employees.emp_number, jobTitle: req.employees.job_title,
-        department: req.employees.departments?.name || '', leaveType: req.leave_type as any, startDate: req.start_date,
-        endDate: req.end_date, leaveDays: req.total_days, replacementName: subEmp?.name || '', managerDecision: 'approved',
-        managerName: 'تم الاعتماد إلكترونياً عبر STAFFCORE', managerTitle: 'مدير الإدارة', managerSignatureDate: new Date().toISOString().split('T')[0],
-        logoSrc: '/energya-logo.png'
-      });
+      setPrintData({ ...baseData, logoSrc: '/energya-logo.png' });
     } else {
       setPrintData({
-        requestDate: new Date(req.created_at).toISOString().split('T')[0], employeeName: req.employees.name,
-        employeeCode: req.employees.emp_number, jobTitle: req.employees.job_title, leaveType: req.leave_type as any,
-        startDate: req.start_date, endDate: req.end_date, leaveDays: req.total_days, phoneSaudi: req.contact_phone,
-        emergencyReason: req.reason, destination: req.contact_address, clientName: 'Energya Steel Solutions',
-        clientAuthorizedSignature: 'Approved via STAFFCORE', logoSrc: '/jawhara-logo.png'
+        ...baseData, requestDate: new Date(req.created_at).toISOString().split('T')[0],
+        phoneSaudi: req.contact_phone, emergencyReason: req.reason, destination: req.contact_address, 
+        clientName: 'Energya Steel Solutions', clientAuthorizedSignature: 'Approved via STAFFCORE', logoSrc: '/jawhara-logo.png'
       });
     }
     setShowPrintView(true);
   };
 
-  // ==========================================
-  // الإحصائيات الذكية ورادار التلاعب
-  // ==========================================
   const today = new Date(); today.setHours(0,0,0,0);
   
   const stats = {
@@ -327,11 +355,6 @@ const handleSubmit = async (e: React.FormEvent) => {
     approved: leaveRequests.filter(r => r.status === 'APPROVED').length,
     rejected: leaveRequests.filter(r => r.status === 'REJECTED').length,
   };
-
-  const leaveTypesBreakdown = leaveRequests.reduce((acc: any, req) => {
-    acc[req.leave_type] = (acc[req.leave_type] || 0) + 1;
-    return acc;
-  }, {});
 
   const getAnalytics = () => {
     const sickStats: any = {};
@@ -352,11 +375,9 @@ const handleSubmit = async (e: React.FormEvent) => {
         annualStats[empName].days += req.total_days;
       }
 
-      // 🔴 التعديل هنا: التلاعب بالويك إند (نهاية الخميس أو بداية السبت)
       if (req.leave_type === 'medical' || req.leave_type === 'emergency') {
         const start = new Date(req.start_date);
         const end = new Date(req.end_date);
-        // الخميس = 4 ، السبت = 6
         if (end.getDay() === 4 || start.getDay() === 6) {
           if (!suspicious[empName]) suspicious[empName] = { count: 0, code: empCode };
           suspicious[empName].count += 1;
@@ -378,7 +399,6 @@ const handleSubmit = async (e: React.FormEvent) => {
   };
   const lastLeave = getLastLeave();
 
-  // 🔴 التعديل هنا: العودة للعمل وتخطي يوم الجمعة
   const calculateDaysLeft = (req: any) => {
     if (req.status !== 'APPROVED') return <span className="text-gray-400 font-bold">-</span>;
     const end = new Date(req.end_date);
@@ -387,7 +407,6 @@ const handleSubmit = async (e: React.FormEvent) => {
     if (diffDays < 0) return <span className="text-gray-400 font-bold text-xs">عاد للعمل</span>;
     if (diffDays === 0) {
       const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-      // لو العودة بكرة الجمعة (5)، يخليها السبت
       if (tomorrow.getDay() === 5) return <span className="text-orange-600 font-black text-xs">سيداوم السبت القادم</span>;
       return <span className="text-orange-500 font-black text-xs">سيأتي للدوام الغد</span>;
     }
@@ -396,9 +415,6 @@ const handleSubmit = async (e: React.FormEvent) => {
 
   const empOptions = employees.map(e => ({ value: e.id, label: `${e.emp_number} - ${e.name}` }));
 
-  // ==========================================
-  // شاشة الطباعة 
-  // ==========================================
   if (showPrintView && printData) {
     return (
       <div className="min-h-screen bg-gray-100 py-8 relative animate-in zoom-in-95">
@@ -406,7 +422,23 @@ const handleSubmit = async (e: React.FormEvent) => {
           <h2 className="font-bold text-gray-700 flex items-center gap-2"><Printer className="text-blue-500"/> طباعة الإجازة المعتمدة</h2>
           <button onClick={() => setShowPrintView(false)} className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:bg-gray-100 px-4 py-2 rounded-lg transition"> العودة للنظام <ArrowRight size={16} /></button>
         </div>
-        {printCompany === 'Energya' || printCompany === 'انيرجيا' ? <EnergyaLeaveTemplate data={printData as EnergyaLeaveData} /> : <JawharaLeaveTemplate data={printData as JawharaLeaveData} />}
+        
+        <div className="print-page">
+          {printCompany === 'Energya' || printCompany === 'انيرجيا' ? <EnergyaLeaveTemplate data={printData as EnergyaLeaveData} /> : <JawharaLeaveTemplate data={printData as JawharaLeaveData} />}
+        </div>
+
+        {printData.attachmentUrl && (
+          <div className="print-page-break mt-8 max-w-[210mm] mx-auto bg-white p-8 rounded-xl shadow-sm border print:shadow-none print:border-none print:mt-0 print:p-0">
+            <h3 className="text-center font-black text-xl mb-6 text-gray-800 no-print">مرفق التقرير الطبي (السكليف)</h3>
+            <img src={printData.attachmentUrl} alt="Medical Certificate" className="max-w-full h-auto mx-auto border rounded-lg print:border-none print:rounded-none object-contain" style={{ maxHeight: '250mm' }} />
+          </div>
+        )}
+
+        <style jsx global>{`
+          @media print { 
+            .print-page-break { page-break-before: always; } 
+          }
+        `}</style>
       </div>
     );
   }
@@ -422,11 +454,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* الـ Header الموحد (أزرار التبديل + الفلاتر) */}
-      {/* ========================================== */}
       <div className="max-w-6xl mx-auto mt-6 px-4 md:px-0 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
-        
         {(userRole === 'ADMIN' || userRole === 'MANAGER') ? (
           <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-200 w-full md:w-auto">
             <button onClick={() => setCurrentView('DASHBOARD')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-black transition ${currentView === 'DASHBOARD' ? 'bg-[var(--color-navy-900)] text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>
@@ -438,11 +466,8 @@ const handleSubmit = async (e: React.FormEvent) => {
           </div>
         ) : <div />}
 
-        {/* 🔴 الفلاتر الذكية (تظهر للمدير والأدمن والـ GM) */}
         {(userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER' || userRole === 'MANAGER') && (
           <div className="flex flex-wrap items-center gap-3 bg-white border border-gray-200 shadow-sm rounded-xl p-2 px-4 w-full md:w-auto">
-            
-            {/* فلتر الإدارة (لا يظهر لمدير الإدارة نفسه) */}
             {(userRole === 'ADMIN' || userRole === 'FACTORY_MANAGER') && (
               <div className="flex items-center gap-2 border-l pl-3">
                 <Filter size={16} className="text-gray-400"/>
@@ -452,8 +477,6 @@ const handleSubmit = async (e: React.FormEvent) => {
                 </select>
               </div>
             )}
-
-            {/* فلتر المدة الزمنية */}
             <div className="flex items-center gap-2">
               <CalendarDays size={16} className="text-blue-500"/>
               <select value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); if(e.target.value !== 'CUSTOM') {setCustomStartDate(''); setCustomEndDate('');} }} className="bg-transparent border-none outline-none font-bold text-sm text-[var(--color-navy-800)] cursor-pointer">
@@ -463,8 +486,6 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <option value="CUSTOM">تحديد فترة مخصصة...</option>
               </select>
             </div>
-
-            {/* حقول المدة المخصصة */}
             {dateFilter === 'CUSTOM' && (
               <div className="flex items-center gap-2 bg-gray-50 border rounded-lg px-2 py-1 animate-in slide-in-from-right-4">
                 <input type="date" value={customStartDate} onChange={e=>setCustomStartDate(e.target.value)} className="text-xs border rounded p-1 font-bold text-gray-700 bg-white" title="من تاريخ"/>
@@ -472,14 +493,10 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <input type="date" value={customEndDate} onChange={e=>setCustomEndDate(e.target.value)} className="text-xs border rounded p-1 font-bold text-gray-700 bg-white" title="إلى تاريخ"/>
               </div>
             )}
-
           </div>
         )}
       </div>
 
-      {/* ========================================== */}
-      {/* 1️⃣ شاشة الداشبورد الجاحدة */}
-      {/* ========================================== */}
       {currentView === 'DASHBOARD' && (
         <div className="max-w-6xl mx-auto space-y-6 animate-in slide-in-from-bottom-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -548,9 +565,6 @@ const handleSubmit = async (e: React.FormEvent) => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* 2️⃣ شاشة الإدخال (الفورم) */}
-      {/* ========================================== */}
       {currentView === 'FORM' && (
         <div className={`bg-white p-6 md:p-8 rounded-2xl shadow-sm border-t-4 ${editingLeaveId ? 'border-orange-500' : 'border-[var(--color-navy-500)]'} max-w-6xl mx-auto animate-in slide-in-from-bottom-4`}>
           <div className="flex items-center justify-between mb-8 pb-4 border-b">
@@ -605,7 +619,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">نوع الإجازة</label>
-                    <select value={leaveData.leaveType} onChange={(e) => setLeaveData({...leaveData, leaveType: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-800 cursor-pointer">
+                    <select value={leaveData.leaveType} onChange={(e) => { setLeaveData({...leaveData, leaveType: e.target.value}); setMedicalFile(null); }} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-800 cursor-pointer">
                       <option value="annual">سنوية (Annual)</option>
                       <option value="deduct">بالخصم / غير مدفوعة</option>
                       <option value="medical">مرضي (Medical)</option>
@@ -623,6 +637,25 @@ const handleSubmit = async (e: React.FormEvent) => {
                     <input type="date" required value={leaveData.endDate} onChange={(e) => setLeaveData({...leaveData, endDate: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-[var(--color-navy-500)] font-bold text-gray-800" />
                   </div>
                 </div>
+
+                {leaveData.leaveType === 'medical' && (
+                  <div className="mb-6 p-5 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl animate-in zoom-in-95">
+                    <h4 className="text-sm font-black text-blue-800 mb-3 flex items-center gap-2"><Paperclip size={16}/> إرفاق التقرير الطبي (السكليف) إجباري</h4>
+                    <input type="file" accept="image/*, application/pdf" className="hidden" ref={fileInputRef} onChange={(e) => setMedicalFile(e.target.files?.[0] || null)} />
+                    <div className="flex items-center gap-4">
+                      <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition flex items-center gap-2">
+                        <UploadCloud size={18}/> {medicalFile || leaveData.attachmentUrl ? 'تغيير الملف' : 'اختر ملف (صورة أو PDF)'}
+                      </button>
+                      {medicalFile ? (
+                        <span className="text-sm font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={16}/> تم إرفاق: {medicalFile.name}</span>
+                      ) : leaveData.attachmentUrl ? (
+                        <a href={leaveData.attachmentUrl} target="_blank" className="text-sm font-bold text-blue-600 hover:underline flex items-center gap-1"><ExternalLink size={14}/> عرض المرفق الحالي</a>
+                      ) : (
+                        <span className="text-sm font-bold text-rose-500 flex items-center gap-1"><AlertTriangle size={16}/> لم يتم الإرفاق بعد</span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col justify-center items-center">
@@ -643,7 +676,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               <div className="flex justify-end pt-4">
                 <button type="submit" disabled={submitting || !selectedEmpId} className={`text-white px-8 py-3.5 rounded-xl font-black transition disabled:opacity-50 flex items-center gap-2 shadow-lg hover:shadow-xl ${editingLeaveId ? 'bg-orange-600 hover:bg-orange-700' : 'bg-[var(--color-navy-900)] hover:bg-blue-600'}`}>
                   <Save size={20} />
-                  {submitting ? 'جاري الحفظ...' : (editingLeaveId ? 'تعديل الطلب' : 'إرسال الطلب للاعتماد')}
+                  {submitting ? 'جاري الحفظ والرفع...' : (editingLeaveId ? 'تعديل الطلب' : 'إرسال الطلب للاعتماد')}
                 </button>
               </div>
             </form>
@@ -667,7 +700,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               <tr className="text-sm font-bold text-gray-600">
                 <th className="p-4">اسم الموظف</th>
                 <th className="p-4 text-center">التاريخ</th>
-                <th className="p-4 text-center">النوع</th>
+                <th className="p-4 text-center">النوع / المرفق</th>
                 <th className="p-4 text-center">حالة الطلب</th>
                 <th className="p-4 text-center">العودة للعمل</th>
                 <th className="p-4 text-center">إجراءات</th>
@@ -687,7 +720,10 @@ const handleSubmit = async (e: React.FormEvent) => {
                       {req.start_date} <ArrowRight size={12} className="inline mx-1 text-gray-400"/> {req.end_date}
                     </td>
                     <td className="p-4 text-center text-xs font-bold text-gray-600">
-                      {leaveTypesMap[req.leave_type] || req.leave_type}
+                      <div>{leaveTypesMap[req.leave_type] || req.leave_type}</div>
+                      {req.attachment_url && (
+                        <a href={req.attachment_url} target="_blank" className="text-blue-500 hover:text-blue-700 flex items-center justify-center gap-1 mt-1 bg-blue-50 rounded px-2 py-0.5 w-max mx-auto border border-blue-100"><Paperclip size={12}/> سكليف مرفق</a>
+                      )}
                     </td>
                     <td className="p-4 text-center">
                       {req.status === 'PENDING' && <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-black flex items-center justify-center gap-1 w-max mx-auto"><Clock size={14}/> قيد المراجعة</span>}
